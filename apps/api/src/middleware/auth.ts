@@ -1,76 +1,58 @@
-import type { Next } from 'hono';
-import { verify } from 'jsonwebtoken';
+import type { MiddlewareHandler } from 'hono';
+import { verifyJWT } from '../lib/crypto';
 import { ERROR_CODES } from '@r2shelf/shared';
-import type { AppContext } from '../types/env';
+import type { Env, Variables } from '../types/env';
 
-export async function authMiddleware(c: AppContext, next: Next) {
+type AppEnv = { Bindings: Env; Variables: Variables };
+
+export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({
-      success: false,
-      error: {
-        code: ERROR_CODES.UNAUTHORIZED,
-        message: '未提供认证令牌',
-      },
-    }, 401);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未提供认证令牌' } },
+      401,
+    );
   }
-  
+
   const token = authHeader.slice(7);
-  
+
   try {
-    const decoded = verify(token, c.env.JWT_SECRET) as { userId: string; email: string; role: string };
-    
-    const sessionKey = `session:${token}`;
-    const session = await c.env.KV.get(sessionKey);
-    
+    const decoded = await verifyJWT(token, c.env.JWT_SECRET);
+
+    const session = await c.env.KV.get(`session:${token}`);
     if (!session) {
-      return c.json({
-        success: false,
-        error: {
-          code: ERROR_CODES.UNAUTHORIZED,
-          message: '会话已过期，请重新登录',
-        },
-      }, 401);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '会话已过期，请重新登录' } },
+        401,
+      );
     }
-    
+
     c.set('userId', decoded.userId);
-    c.set('user', {
-      id: decoded.userId,
-      email: decoded.email,
-      role: decoded.role,
-    });
-    
+    c.set('user', { id: decoded.userId, email: decoded.email, role: decoded.role });
+
     await next();
   } catch {
-    return c.json({
-      success: false,
-      error: {
-        code: ERROR_CODES.UNAUTHORIZED,
-        message: '令牌无效或已过期',
-      },
-    }, 401);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '令牌无效或已过期' } },
+      401,
+    );
   }
-}
+};
 
-export async function optionalAuth(c: AppContext, next: Next) {
+export const optionalAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  
+
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
-    
     try {
-      const decoded = verify(token, c.env.JWT_SECRET) as { userId: string; email: string; role: string };
+      const decoded = await verifyJWT(token, c.env.JWT_SECRET);
       c.set('userId', decoded.userId);
-      c.set('user', {
-        id: decoded.userId,
-        email: decoded.email,
-        role: decoded.role,
-      });
+      c.set('user', { id: decoded.userId, email: decoded.email, role: decoded.role });
     } catch {
-      // Token invalid, continue without auth
+      // continue without auth
     }
   }
-  
+
   await next();
-}
+};

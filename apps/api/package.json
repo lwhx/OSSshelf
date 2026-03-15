@@ -18,16 +18,10 @@
     "@r2shelf/shared": "workspace:*",
     "hono": "^4.0.0",
     "drizzle-orm": "^0.29.0",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
-    "uuid": "^9.0.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240117.0",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.5",
-    "@types/uuid": "^9.0.7",
     "drizzle-kit": "^0.20.0",
     "typescript": "^5.3.0",
     "wrangler": "^3.24.0"

@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useFileStore } from '@/stores/auth';
-import { filesApi } from '@/services/api';
+import { useFileStore } from '@/stores/files';
+import { filesApi, shareApi } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
-import { formatBytes, formatDate, getFileExtension } from '@/utils';
+import { formatBytes, formatDate } from '@/utils';
 import {
   Folder,
   File,
@@ -14,29 +14,37 @@ import {
   FolderPlus,
   Grid,
   List,
-  MoreVertical,
   Download,
   Trash2,
   Share2,
-  Edit2,
+  ChevronRight,
+  Home,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
+import type { FileItem } from '@r2shelf/shared';
 
 export default function Files() {
   const { folderId } = useParams<{ folderId: string }>();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { viewMode, setViewMode, selectedFiles, toggleFileSelection, clearSelection } = useFileStore();
-  
+  const { viewMode, setViewMode, selectedFiles, toggleFileSelection, clearSelection } =
+    useFileStore();
+
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  
+  const [shareFileId, setShareFileId] = useState<string | null>(null);
+  const [sharePassword, setSharePassword] = useState('');
+
+  // ── Queries ───────────────────────────────────────────────────────────
   const { data: files, isLoading } = useQuery({
     queryKey: ['files', folderId],
-    queryFn: () => filesApi.list({ parentId: folderId || null }).then((res) => res.data.data),
+    queryFn: () =>
+      filesApi.list({ parentId: folderId || null }).then((res) => res.data.data ?? []),
   });
-  
+
+  // ── Mutations ─────────────────────────────────────────────────────────
   const createFolderMutation = useMutation({
     mutationFn: (name: string) => filesApi.createFolder(name, folderId),
     onSuccess: () => {
@@ -53,7 +61,7 @@ export default function Files() {
       });
     },
   });
-  
+
   const uploadMutation = useMutation({
     mutationFn: ({ file, parentId }: { file: File; parentId: string | null }) =>
       filesApi.upload(file, parentId, (progress) => setUploadProgress(progress)),
@@ -71,7 +79,7 @@ export default function Files() {
       });
     },
   });
-  
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => filesApi.delete(id),
     onSuccess: () => {
@@ -86,7 +94,32 @@ export default function Files() {
       });
     },
   });
-  
+
+  const shareMutation = useMutation({
+    mutationFn: ({ fileId, password }: { fileId: string; password?: string }) =>
+      shareApi.create({ fileId, password: password || undefined }),
+    onSuccess: (res) => {
+      const shareId = res.data.data?.id;
+      if (shareId) {
+        const url = `${window.location.origin}/api/share/${shareId}`;
+        navigator.clipboard.writeText(url).then(() => {
+          toast({ title: '分享链接已复制', description: url });
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['shares'] });
+      setShareFileId(null);
+      setSharePassword('');
+    },
+    onError: (error: any) => {
+      toast({
+        title: '创建分享失败',
+        description: error.response?.data?.error?.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // ── Dropzone ──────────────────────────────────────────────────────────
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       acceptedFiles.forEach((file) => {
@@ -95,56 +128,72 @@ export default function Files() {
     },
     [folderId, uploadMutation]
   );
-  
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     noClick: true,
   });
-  
+
+  // ── Handlers ──────────────────────────────────────────────────────────
   const handleCreateFolder = () => {
     if (newFolderName.trim()) {
       createFolderMutation.mutate(newFolderName.trim());
     }
   };
-  
-  const handleDownload = async (fileId: string, fileName: string) => {
+
+  const handleDownload = async (file: FileItem) => {
     try {
-      const response = await filesApi.download(fileId);
-      const url = window.URL.createObjectURL(response.data);
+      const response = await filesApi.download(file.id);
+      const url = window.URL.createObjectURL(response.data as Blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = fileName;
+      a.download = file.name;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       a.remove();
-    } catch (error) {
-      toast({
-        title: '下载失败',
-        description: '文件下载失败',
-        variant: 'destructive',
-      });
+    } catch {
+      toast({ title: '下载失败', variant: 'destructive' });
     }
   };
-  
+
+  const handleFolderOpen = (file: FileItem) => {
+    if (file.isFolder) {
+      clearSelection();
+      navigate(`/files/${file.id}`);
+    }
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div {...getRootProps()} className="space-y-6">
       <input {...getInputProps()} />
-      
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">文件管理</h1>
-          <p className="text-muted-foreground">管理您的文件和文件夹</p>
+          {folderId ? (
+            <button
+              onClick={() => navigate('/files')}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mt-1"
+            >
+              <Home className="h-3 w-3" />
+              <ChevronRight className="h-3 w-3" />
+              <span>返回根目录</span>
+            </button>
+          ) : (
+            <p className="text-muted-foreground text-sm mt-1">管理您的文件和文件夹</p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setViewMode('list')}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="icon" onClick={() => setViewMode('list')} title="列表视图">
             <List className={`h-4 w-4 ${viewMode === 'list' ? 'text-primary' : ''}`} />
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setViewMode('grid')}>
+          <Button variant="outline" size="icon" onClick={() => setViewMode('grid')} title="网格视图">
             <Grid className={`h-4 w-4 ${viewMode === 'grid' ? 'text-primary' : ''}`} />
           </Button>
-          <Button onClick={() => setShowNewFolderDialog(true)}>
+          <Button variant="outline" onClick={() => setShowNewFolderDialog(true)}>
             <FolderPlus className="h-4 w-4 mr-2" />
             新建文件夹
           </Button>
@@ -160,8 +209,8 @@ export default function Files() {
               className="hidden"
               multiple
               onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                files.forEach((file) => {
+                const selected = Array.from(e.target.files || []);
+                selected.forEach((file) => {
                   uploadMutation.mutate({ file, parentId: folderId || null });
                 });
                 e.target.value = '';
@@ -170,7 +219,7 @@ export default function Files() {
           </label>
         </div>
       </div>
-      
+
       {/* Upload progress */}
       {uploadProgress !== null && (
         <div className="bg-card border rounded-lg p-4">
@@ -186,40 +235,71 @@ export default function Files() {
           </div>
         </div>
       )}
-      
+
       {/* Drag overlay */}
       {isDragActive && (
         <div className="fixed inset-0 z-50 bg-primary/10 flex items-center justify-center pointer-events-none">
-          <div className="bg-card border-2 border-dashed border-primary rounded-lg p-12">
+          <div className="bg-card border-2 border-dashed border-primary rounded-lg p-12 text-center">
             <Upload className="h-12 w-12 mx-auto mb-4 text-primary" />
             <p className="text-lg font-medium">拖放文件到此处上传</p>
           </div>
         </div>
       )}
-      
+
       {/* New folder dialog */}
       {showNewFolderDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border rounded-lg p-6 w-full max-w-md">
+          <div className="bg-card border rounded-lg p-6 w-full max-w-md shadow-xl">
             <h2 className="text-lg font-semibold mb-4">新建文件夹</h2>
             <Input
               placeholder="文件夹名称"
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+              autoFocus
             />
             <div className="flex justify-end gap-2 mt-4">
-              <Button variant="outline" onClick={() => setShowNewFolderDialog(false)}>
+              <Button variant="outline" onClick={() => { setShowNewFolderDialog(false); setNewFolderName(''); }}>
                 取消
               </Button>
-              <Button onClick={handleCreateFolder} disabled={createFolderMutation.isPending}>
+              <Button onClick={handleCreateFolder} disabled={createFolderMutation.isPending || !newFolderName.trim()}>
                 创建
               </Button>
             </div>
           </div>
         </div>
       )}
-      
+
+      {/* Share dialog */}
+      {shareFileId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card border rounded-lg p-6 w-full max-w-md shadow-xl">
+            <h2 className="text-lg font-semibold mb-4">创建分享链接</h2>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">访问密码（可选）</label>
+                <Input
+                  placeholder="留空则不设密码"
+                  value={sharePassword}
+                  onChange={(e) => setSharePassword(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => { setShareFileId(null); setSharePassword(''); }}>
+                取消
+              </Button>
+              <Button
+                onClick={() => shareMutation.mutate({ fileId: shareFileId, password: sharePassword })}
+                disabled={shareMutation.isPending}
+              >
+                {shareMutation.isPending ? '创建中...' : '创建并复制链接'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* File list */}
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground">加载中...</div>
@@ -232,7 +312,7 @@ export default function Files() {
                 className={`flex items-center gap-4 p-4 hover:bg-accent/50 cursor-pointer ${
                   selectedFiles.includes(file.id) ? 'bg-accent' : ''
                 }`}
-                onClick={() => toggleFileSelection(file.id)}
+                onClick={() => file.isFolder ? handleFolderOpen(file) : toggleFileSelection(file.id)}
               >
                 <div className="flex-shrink-0">
                   {file.isFolder ? (
@@ -247,25 +327,25 @@ export default function Files() {
                     {file.isFolder ? '文件夹' : formatBytes(file.size)} · {formatDate(file.updatedAt)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   {!file.isFolder && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDownload(file.id, file.name);
-                      }}
-                    >
+                    <Button variant="ghost" size="icon" title="下载" onClick={() => handleDownload(file)}>
                       <Download className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {!file.isFolder && (
+                    <Button variant="ghost" size="icon" title="分享" onClick={() => setShareFileId(file.id)}>
+                      <Share2 className="h-4 w-4" />
                     </Button>
                   )}
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteMutation.mutate(file.id);
+                    title="删除"
+                    onClick={() => {
+                      if (confirm(`确定要删除 "${file.name}" 吗？`)) {
+                        deleteMutation.mutate(file.id);
+                      }
                     }}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -279,10 +359,10 @@ export default function Files() {
             {files.map((file) => (
               <div
                 key={file.id}
-                className={`bg-card border rounded-lg p-4 hover:bg-accent/50 cursor-pointer ${
+                className={`bg-card border rounded-lg p-4 hover:bg-accent/50 cursor-pointer group ${
                   selectedFiles.includes(file.id) ? 'ring-2 ring-primary' : ''
                 }`}
-                onClick={() => toggleFileSelection(file.id)}
+                onClick={() => file.isFolder ? handleFolderOpen(file) : toggleFileSelection(file.id)}
               >
                 <div className="flex justify-center mb-3">
                   {file.isFolder ? (
@@ -295,6 +375,33 @@ export default function Files() {
                 <p className="text-xs text-muted-foreground text-center mt-1">
                   {file.isFolder ? '文件夹' : formatBytes(file.size)}
                 </p>
+                <div
+                  className="flex justify-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {!file.isFolder && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDownload(file)}>
+                      <Download className="h-3 w-3" />
+                    </Button>
+                  )}
+                  {!file.isFolder && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShareFileId(file.id)}>
+                      <Share2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => {
+                      if (confirm(`确定要删除 "${file.name}" 吗？`)) {
+                        deleteMutation.mutate(file.id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -302,7 +409,7 @@ export default function Files() {
       ) : (
         <div className="text-center py-12 text-muted-foreground">
           <Folder className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>暂无文件</p>
+          <p className="font-medium">暂无文件</p>
           <p className="text-sm mt-1">拖放文件或点击上传按钮添加文件</p>
         </div>
       )}
