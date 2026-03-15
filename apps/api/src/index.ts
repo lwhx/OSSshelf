@@ -1,0 +1,49 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
+import { prettyJSON } from 'hono/pretty-json';
+import { secureHeaders } from 'hono/secure-headers';
+import authRoutes from './routes/auth';
+import filesRoutes from './routes/files';
+import shareRoutes from './routes/share';
+import webdavRoutes from './routes/webdav';
+import { errorHandler } from './middleware/error';
+import type { Env } from './types/env';
+
+const app = new Hono<{ Bindings: Env }>();
+
+app.use('*', logger());
+app.use('*', prettyJSON());
+app.use('*', secureHeaders());
+app.use('*', cors({
+  origin: ['*'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Depth'],
+  exposeHeaders: ['Content-Length', 'Content-Range'],
+  maxAge: 86400,
+}));
+
+app.use('*', errorHandler);
+
+app.get('/', (c) => {
+  return c.json({
+    name: 'R2Shelf API',
+    version: '0.1.0',
+    description: '基于 Cloudflare R2 的文件管理系统 API',
+  });
+});
+
+app.get('/health', (c) => {
+  return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.route('/api/auth', authRoutes);
+app.route('/api/files', filesRoutes);
+app.route('/api/share', shareRoutes);
+app.route('/dav', webdavRoutes);
+
+app.notFound((c) => {
+  return c.json({ success: false, error: { code: 'NOT_FOUND', message: '路由不存在' } }, 404);
+});
+
+export default app;

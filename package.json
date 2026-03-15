@@ -1,0 +1,32 @@
+{
+  "name": "r2shelf",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于 Cloudflare R2 的文件管理系统，支持 WebDAV 协议",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api dev",
+    "build:web": "pnpm --filter web build",
+    "build:api": "pnpm --filter api build",
+    "deploy:api": "pnpm --filter api deploy",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter api db:generate",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "db:studio": "pnpm --filter api db:studio"
+  },
+  "keywords": [
+    "cloudflare",
+    "r2",
+    "webdav",
+    "file-manager",
+    "storage"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}
