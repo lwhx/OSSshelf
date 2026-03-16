@@ -206,12 +206,39 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   const parentPath = path.lastIndexOf('/') > 0 ? path.slice(0, path.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
+  const encKeyP = c.env.JWT_SECRET || 'ossshelf-key';
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
-    const parentFolder = await findFileByPath(db, userId, parentPath);
-    if (!parentFolder) return new Response('Conflict: parent folder not found', { status: 409 });
-    parentId = parentFolder.id;
+    let parentFolder = await findFileByPath(db, userId, parentPath);
+    if (!parentFolder) {
+      const pathParts = parentPath.split('/').filter(Boolean);
+      let currentParentId: string | null = null;
+      let currentPath = '';
+      
+      for (const part of pathParts) {
+        currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
+        let folder = await findFileByPath(db, userId, currentPath);
+        
+        if (!folder) {
+          const folderId = crypto.randomUUID();
+          const now = new Date().toISOString();
+          const bucketCfg = await resolveBucketConfig(db, userId, encKeyP, null, currentParentId);
+          
+          await db.insert(files).values({
+            id: folderId, userId, parentId: currentParentId, name: part, path: currentPath, type: 'folder',
+            size: 0, r2Key: `folders/${folderId}`, mimeType: null, hash: null, isFolder: true, 
+            bucketId: bucketCfg?.id ?? null, createdAt: now, updatedAt: now, deletedAt: null,
+          });
+          currentParentId = folderId;
+        } else {
+          currentParentId = folder.id;
+        }
+      }
+      parentId = currentParentId;
+    } else {
+      parentId = parentFolder.id;
+    }
   }
 
   const existingFile = await findFileByPath(db, userId, path);
@@ -221,7 +248,6 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   const mimeType = c.req.header('Content-Type') || 'application/octet-stream';
   const r2Key = `files/${userId}/${fileId}/${fileName}`;
 
-  const encKeyP = c.env.JWT_SECRET || 'ossshelf-key';
   const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
   if (bucketCfgP) {
     await s3Put(bucketCfgP, r2Key, body, mimeType, { userId, originalName: fileName });
