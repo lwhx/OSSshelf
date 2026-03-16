@@ -267,6 +267,40 @@ app.get('/list', async (c) => {
   });
 });
 
+app.delete('/completed', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const result = await db.delete(downloadTasks)
+    .where(and(eq(downloadTasks.userId, userId), eq(downloadTasks.status, 'completed')))
+    .returning({ id: downloadTasks.id });
+
+  return c.json({
+    success: true,
+    data: {
+      message: `已清理 ${result.length} 个已完成的任务`,
+      count: result.length,
+    },
+  });
+});
+
+app.delete('/failed', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const result = await db.delete(downloadTasks)
+    .where(and(eq(downloadTasks.userId, userId), eq(downloadTasks.status, 'failed')))
+    .returning({ id: downloadTasks.id });
+
+  return c.json({
+    success: true,
+    data: {
+      message: `已清理 ${result.length} 个失败的任务`,
+      count: result.length,
+    },
+  });
+});
+
 app.get('/:taskId', async (c) => {
   const userId = c.get('userId')!;
   const taskId = c.req.param('taskId');
@@ -380,40 +414,6 @@ app.post('/:taskId/retry', async (c) => {
     .where(eq(downloadTasks.id, taskId));
 
   return c.json({ success: true, data: { message: '任务已重新排队' } });
-});
-
-app.delete('/completed', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const result = await db.delete(downloadTasks)
-    .where(and(eq(downloadTasks.userId, userId), eq(downloadTasks.status, 'completed')))
-    .returning({ id: downloadTasks.id });
-
-  return c.json({
-    success: true,
-    data: {
-      message: `已清理 ${result.length} 个已完成的任务`,
-      count: result.length,
-    },
-  });
-});
-
-app.delete('/failed', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const result = await db.delete(downloadTasks)
-    .where(and(eq(downloadTasks.userId, userId), eq(downloadTasks.status, 'failed')))
-    .returning({ id: downloadTasks.id });
-
-  return c.json({
-    success: true,
-    data: {
-      message: `已清理 ${result.length} 个失败的任务`,
-      count: result.length,
-    },
-  });
 });
 
 export default app;

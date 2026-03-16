@@ -142,54 +142,6 @@ app.get('/list', async (c) => {
   });
 });
 
-app.get('/:taskId', async (c) => {
-  const userId = c.get('userId')!;
-  const taskId = c.req.param('taskId');
-  const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
-
-  const task = await db.select().from(uploadTasks)
-    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
-    .get();
-
-  if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
-  }
-
-  if (task.status === 'completed') {
-    return c.json({ success: true, data: { ...task, uploadedParts: JSON.parse(task.uploadedParts || '[]') } });
-  }
-
-  if (new Date(task.expiresAt) < new Date()) {
-    await db.update(uploadTasks).set({ status: 'expired', updatedAt: new Date().toISOString() }).where(eq(uploadTasks.id, taskId));
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
-  }
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
-  }
-
-  let uploadedParts: number[] = [];
-  try {
-    const parts = await s3ListParts(bucketConfig, task.r2Key, task.uploadId);
-    uploadedParts = parts.map((p) => p.partNumber);
-    await db.update(uploadTasks)
-      .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
-      .where(eq(uploadTasks.id, taskId));
-  } catch (e) {
-    console.error('List parts error:', e);
-  }
-
-  return c.json({
-    success: true,
-    data: {
-      ...task,
-      uploadedParts,
-    },
-  });
-});
-
 app.post('/part', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -402,6 +354,54 @@ app.post('/abort', async (c) => {
     .where(eq(uploadTasks.id, taskId));
 
   return c.json({ success: true, data: { message: '上传已中止' } });
+});
+
+app.get('/:taskId', async (c) => {
+  const userId = c.get('userId')!;
+  const taskId = c.req.param('taskId');
+  const db = getDb(c.env.DB);
+  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+
+  const task = await db.select().from(uploadTasks)
+    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
+    .get();
+
+  if (!task) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+  }
+
+  if (task.status === 'completed') {
+    return c.json({ success: true, data: { ...task, uploadedParts: JSON.parse(task.uploadedParts || '[]') } });
+  }
+
+  if (new Date(task.expiresAt) < new Date()) {
+    await db.update(uploadTasks).set({ status: 'expired', updatedAt: new Date().toISOString() }).where(eq(uploadTasks.id, taskId));
+    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+  }
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
+  }
+
+  let uploadedParts: number[] = [];
+  try {
+    const parts = await s3ListParts(bucketConfig, task.r2Key, task.uploadId);
+    uploadedParts = parts.map((p) => p.partNumber);
+    await db.update(uploadTasks)
+      .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
+      .where(eq(uploadTasks.id, taskId));
+  } catch (e) {
+    console.error('List parts error:', e);
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      ...task,
+      uploadedParts,
+    },
+  });
 });
 
 app.delete('/:taskId', async (c) => {
