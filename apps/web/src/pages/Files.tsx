@@ -12,7 +12,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
@@ -33,12 +33,13 @@ import { FileTagsManager } from '@/components/ui/FileTagsManager';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
+import { uploadManager, setupBeforeUnloadWarning, removeBeforeUnloadWarning } from '@/services/uploadManager';
 import {
   Upload, FolderPlus, Grid, List, Download, Trash2, Share2,
   Search, X, Pencil, Eye, CheckSquare, Square, SortAsc, SortDesc,
   Image as ImageIcon, FolderInput, Database, MoreVertical,
   Copy, Scissors, Clipboard, RefreshCw, Columns, LayoutGrid,
-  CheckCircle2, Tag,
+  CheckCircle2, Tag, AlertTriangle,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import type { FileItem } from '@osshelf/shared';
