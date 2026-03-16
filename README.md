@@ -438,6 +438,16 @@ pnpm dev:web
 | `JWT_SECRET` | JWT 签名密钥 |
 | `TRASH_RETENTION_DAYS` | 回收站保留天数（可选，默认 30） |
 
+#### 定时任务配置
+
+Cloudflare Workers 免费账户限制最多 **5 个 cron triggers**。本项目使用单个 cron trigger（每天凌晨 3 点执行），触发后会依次执行：
+
+1. **回收站清理** - 删除超过保留天数的文件
+2. **会话清理** - 清理过期的 WebDAV 会话、上传任务、登录记录
+3. **分享清理** - 删除过期的分享链接
+
+如需更多定时任务，可升级到 Workers Paid 计划（最多 250 个 cron triggers）。
+
 #### Web 应用
 
 | 变量 | 类型 | 描述 |

@@ -18,6 +18,7 @@ import downloadsRoutes from './routes/downloads';
 import previewRoutes from './routes/preview';
 import cronRoutes from './routes/cron';
 import { errorHandler } from './middleware/error';
+import { runAllCleanupTasks } from './lib/cleanup';
 import type { Env } from './types/env';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -69,4 +70,16 @@ app.notFound((c) => {
   return c.json({ success: false, error: { code: 'NOT_FOUND', message: '路由不存在' } }, 404);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    console.log(`Cron trigger fired at ${new Date().toISOString()}`);
+    ctx.waitUntil(
+      runAllCleanupTasks(env).then((result) => {
+        console.log('Cron job completed:', JSON.stringify(result));
+      }).catch((error) => {
+        console.error('Cron job failed:', error);
+      })
+    );
+  },
+};
