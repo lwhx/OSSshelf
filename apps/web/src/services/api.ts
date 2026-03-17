@@ -504,6 +504,8 @@ export const permissionsApi = {
     api.get<ApiResponse<FileTag[]>>(`/api/permissions/tags/file/${fileId}`),
   getUserTags: () =>
     api.get<ApiResponse<FileTag[]>>('/api/permissions/tags/user'),
+  getBatchFileTags: (fileIds: string[]) =>
+    api.post<ApiResponse<Record<string, FileTag[]>>>('/api/permissions/tags/batch', { fileIds }),
 };
 
 export const previewApi = {

@@ -295,6 +295,36 @@ app.get('/tags/user', async (c) => {
   return c.json({ success: true, data: uniqueTags });
 });
 
+const batchTagsSchema = z.object({
+  fileIds: z.array(z.string().min(1)).max(100),
+});
+
+app.post('/tags/batch', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = batchTagsSchema.safeParse(body);
+  if (!result.success) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+  }
+
+  const { fileIds } = result.data;
+  const db = getDb(c.env.DB);
+
+  const tags = await db.select().from(fileTags)
+    .where(inArray(fileTags.fileId, fileIds))
+    .all();
+
+  const tagsByFileId: Record<string, typeof tags> = {};
+  for (const tag of tags) {
+    if (!tagsByFileId[tag.fileId]) {
+      tagsByFileId[tag.fileId] = [];
+    }
+    tagsByFileId[tag.fileId].push(tag);
+  }
+
+  return c.json({ success: true, data: tagsByFileId });
+});
+
 app.get('/check/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');

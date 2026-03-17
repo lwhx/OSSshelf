@@ -16,7 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
-import { filesApi, shareApi, bucketsApi, PROVIDER_META, type StorageBucket } from '@/services/api';
+import { filesApi, shareApi, bucketsApi, PROVIDER_META, type StorageBucket, permissionsApi } from '@/services/api';
 import { presignUpload } from '@/services/presignUpload';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -30,6 +30,7 @@ import { FilePreview } from '@/components/ui/FilePreview';
 import { RenameDialog } from '@/components/ui/RenameDialog';
 import { MoveFolderPicker } from '@/components/ui/MoveFolderPicker';
 import { FileTagsManager } from '@/components/ui/FileTagsManager';
+import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
@@ -225,6 +226,18 @@ export default function Files() {
   const { data: files = [], isLoading, refetch } = useQuery<FileItem[]>({
     queryKey: ['files', folderId],
     queryFn: () => filesApi.list({ parentId: folderId || null }).then((r) => r.data.data ?? []),
+  });
+
+  const fileIds = files.map((f) => f.id);
+  const { data: fileTagsMap = {} } = useQuery<Record<string, any[]>>({
+    queryKey: ['file-tags-batch', fileIds.sort().join(',')],
+    queryFn: async () => {
+      if (fileIds.length === 0) return {};
+      const res = await permissionsApi.getBatchFileTags(fileIds);
+      return res.data.data ?? {};
+    },
+    enabled: fileIds.length > 0,
+    staleTime: 30000,
   });
 
   const displayFiles = [...files]
@@ -803,6 +816,7 @@ export default function Files() {
               key={file.id}
               file={file}
               isSelected={selectedFiles.includes(file.id)}
+              tags={fileTagsMap[file.id]}
               onClick={handleFileClick}
               onToggleSelect={toggleFileSelection}
               onDownload={handleDownload}
@@ -812,6 +826,7 @@ export default function Files() {
               onPreview={setPreviewFile}
               onMove={setMoveFile}
               onContextMenu={handleContextMenu}
+              onTagClick={(tagName) => setSearchQuery(tagName)}
             />
           ))}
         </div>
@@ -826,6 +841,7 @@ export default function Files() {
               file={file}
               token={token || ''}
               isSelected={selectedFiles.includes(file.id)}
+              tags={fileTagsMap[file.id]}
               onClick={handleFileClick}
               onToggleSelect={toggleFileSelection}
               onDownload={handleDownload}
@@ -835,6 +851,7 @@ export default function Files() {
               onPreview={setPreviewFile}
               onMove={setMoveFile}
               onContextMenu={handleContextMenu}
+              onTagClick={(tagName) => setSearchQuery(tagName)}
             />
           ))}
         </div>
@@ -849,6 +866,7 @@ export default function Files() {
               file={file}
               token={token || ''}
               isSelected={selectedFiles.includes(file.id)}
+              tags={fileTagsMap[file.id]}
               onClick={handleFileClick}
               onToggleSelect={toggleFileSelection}
               onDownload={handleDownload}
@@ -858,6 +876,7 @@ export default function Files() {
               onPreview={setPreviewFile}
               onMove={setMoveFile}
               onContextMenu={handleContextMenu}
+              onTagClick={(tagName) => setSearchQuery(tagName)}
             />
           ))}
         </div>
@@ -870,6 +889,7 @@ interface ItemProps {
   file: FileItem;
   isSelected?: boolean;
   token?: string;
+  tags?: any[];
   onClick: (f: FileItem) => void;
   onToggleSelect: (id: string, file?: FileItem) => void;
   onDownload: (f: FileItem) => void;
@@ -879,9 +899,10 @@ interface ItemProps {
   onPreview: (f: FileItem) => void;
   onMove: (f: FileItem) => void;
   onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
+  onTagClick?: (tagName: string) => void;
 }
 
-function ListItem({ file, isSelected, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu }: ItemProps) {
+function ListItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const { isMobile } = useResponsive();
   
@@ -899,7 +920,12 @@ function ListItem({ file, isSelected, onClick, onToggleSelect, onDownload, onSha
       </button>
       <div className="flex-shrink-0"><FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" /></div>
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate text-sm">{file.name}</p>
+        <div className="flex items-center gap-2">
+          <p className="font-medium truncate text-sm">{file.name}</p>
+          {tags && tags.length > 0 && (
+            <FileTagsDisplay tags={tags} size="xs" onTagClick={onTagClick} />
+          )}
+        </div>
         <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
           {file.isFolder ? '文件夹' : formatBytes(file.size)} · {formatDate(file.updatedAt)}
           {file.mimeType && !file.isFolder && <span className="opacity-40 hidden sm:inline">{file.mimeType}</span>}
@@ -926,7 +952,7 @@ function ListItem({ file, isSelected, onClick, onToggleSelect, onDownload, onSha
   );
 }
 
-function GridItem({ file, isSelected, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu }: ItemProps) {
+function GridItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -963,6 +989,9 @@ function GridItem({ file, isSelected, onClick, onToggleSelect, onDownload, onSha
             </span>
           )}
         </div>
+        {tags && tags.length > 0 && (
+          <FileTagsDisplay tags={tags} size="xs" className="mt-1" onTagClick={onTagClick} />
+        )}
       </div>
       <div className={cn(
         "absolute inset-0 bg-black/50 transition-opacity flex items-center justify-center gap-1.5 rounded-xl",
@@ -979,7 +1008,7 @@ function GridItem({ file, isSelected, onClick, onToggleSelect, onDownload, onSha
   );
 }
 
-function MasonryItem({ file, isSelected, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu }: ItemProps) {
+function MasonryItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const isImage = file.mimeType?.startsWith('image/');
   const { isMobile } = useResponsive();
@@ -1013,6 +1042,9 @@ function MasonryItem({ file, isSelected, onClick, onToggleSelect, onDownload, on
       <div className="px-2 py-1.5 border-t">
         <p className="text-xs font-medium truncate">{file.name}</p>
         <p className="text-[10px] text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
+        {tags && tags.length > 0 && (
+          <FileTagsDisplay tags={tags} size="xs" className="mt-0.5" onTagClick={onTagClick} />
+        )}
       </div>
     </div>
   );
