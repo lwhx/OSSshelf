@@ -6,11 +6,38 @@ import { ERROR_CODES, CODE_HIGHLIGHT_EXTENSIONS, PREVIEWABLE_MIME_TYPES } from '
 import type { Env, Variables } from '../types/env';
 import { s3Get } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
+import { verifyJWT } from '../lib/crypto';
+import type { Context, MiddlewareHandler } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-app.use('*', authMiddleware);
 
 const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
+
+type AppEnv = { Bindings: Env; Variables: Variables };
+
+async function verifyTokenFromQuery(c: Context<AppEnv>): Promise<{ userId: string; email: string; role: string } | null> {
+  const token = c.req.query('token');
+  if (!token) return null;
+  
+  try {
+    const decoded = await verifyJWT(token, c.env.JWT_SECRET);
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+const previewAuthMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const decoded = await verifyTokenFromQuery(c);
+  if (decoded) {
+    c.set('userId', decoded.userId);
+    c.set('user', { id: decoded.userId, email: decoded.email, role: decoded.role });
+    return next();
+  }
+  return authMiddleware(c, next);
+};
+
+app.use('*', previewAuthMiddleware);
 
 function getFileExtension(fileName: string): string {
   const lastDot = fileName.lastIndexOf('.');

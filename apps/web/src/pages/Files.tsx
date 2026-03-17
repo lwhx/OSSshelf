@@ -1081,7 +1081,7 @@ function ListItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload,
   );
 }
 
-function GridItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
+function GridItem({ file, isSelected, token, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -1094,7 +1094,7 @@ function GridItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload,
       onContextMenu={(e) => onContextMenu(e, file)}
     >
       <div className={cn('flex items-center justify-center h-28 relative', !isImage && bg)}>
-        {isImage ? <img src={filesApi.previewUrl(file.id)} alt={file.name} className="w-full h-full object-cover" onError={(e) => { (e.target as any).style.display = 'none'; }} /> : <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="lg" />}
+        {isImage ? <img src={filesApi.previewUrl(file.id, token)} alt={file.name} className="w-full h-full object-cover" onError={(e) => { (e.target as any).style.display = 'none'; }} /> : <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="lg" />}
         <button 
           className={cn(
             "absolute top-2 left-2 transition-opacity z-10",
@@ -1137,7 +1137,7 @@ function GridItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload,
   );
 }
 
-function MasonryItem({ file, isSelected, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
+function MasonryItem({ file, isSelected, token, tags, onClick, onToggleSelect, onDownload, onShare, onDelete, onRename, onPreview, onMove, onContextMenu, onTagClick }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const isImage = file.mimeType?.startsWith('image/');
   const { isMobile } = useResponsive();
@@ -1150,7 +1150,7 @@ function MasonryItem({ file, isSelected, tags, onClick, onToggleSelect, onDownlo
     >
       <div className={cn('relative', !isImage && bg)}>
         {isImage ? (
-          <img src={filesApi.previewUrl(file.id)} alt={file.name} className="w-full block object-cover" loading="lazy" />
+          <img src={filesApi.previewUrl(file.id, token)} alt={file.name} className="w-full block object-cover" loading="lazy" />
         ) : (
           <div className="flex items-center justify-center p-8">
             <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="lg" />
