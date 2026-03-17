@@ -21,7 +21,7 @@ import { cn } from '@/utils';
 import {
   Files as FilesIcon, FolderOpen, Trash2, Clock, TrendingUp,
   Image, Video, Music, FileText, File, ChevronRight,
-  Database,
+  Database, FileSpreadsheet, Presentation, Archive, FileCode,
 } from 'lucide-react';
 import type { DashboardStats } from '@/services/api';
 
@@ -30,6 +30,11 @@ const CATEGORY_META = {
   video: { label: '视频', icon: Video, color: 'text-purple-500', bg: 'bg-purple-500/10' },
   audio: { label: '音频', icon: Music, color: 'text-pink-500', bg: 'bg-pink-500/10' },
   pdf: { label: 'PDF', icon: FileText, color: 'text-red-500', bg: 'bg-red-500/10' },
+  document: { label: '文档', icon: FileText, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+  spreadsheet: { label: '表格', icon: FileSpreadsheet, color: 'text-green-500', bg: 'bg-green-500/10' },
+  presentation: { label: '演示', icon: Presentation, color: 'text-orange-500', bg: 'bg-orange-500/10' },
+  archive: { label: '压缩包', icon: Archive, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+  code: { label: '代码', icon: FileCode, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
   text: { label: '文本', icon: FileText, color: 'text-slate-500', bg: 'bg-slate-500/10' },
   other: { label: '其他', icon: File, color: 'text-muted-foreground', bg: 'bg-muted/60' },
 } as const;

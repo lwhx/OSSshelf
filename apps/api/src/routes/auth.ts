@@ -564,12 +564,60 @@ app.get('/stats', authMiddleware, async (c) => {
 
   const typeBreakdown: Record<string, number> = {};
   for (const f of activeFiles.filter((f) => !f.isFolder)) {
-    const category = f.mimeType?.startsWith('image/') ? 'image'
-      : f.mimeType?.startsWith('video/') ? 'video'
-      : f.mimeType?.startsWith('audio/') ? 'audio'
-      : f.mimeType === 'application/pdf' ? 'pdf'
-      : f.mimeType?.startsWith('text/') ? 'text'
-      : 'other';
+    const mime = f.mimeType || '';
+    let category: string;
+    
+    if (mime.startsWith('image/')) {
+      category = 'image';
+    } else if (mime.startsWith('video/')) {
+      category = 'video';
+    } else if (mime.startsWith('audio/')) {
+      category = 'audio';
+    } else if (mime === 'application/pdf') {
+      category = 'pdf';
+    } else if (mime.startsWith('text/')) {
+      category = 'text';
+    } else if ([
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.oasis.opendocument.text',
+    ].includes(mime)) {
+      category = 'document';
+    } else if ([
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.oasis.opendocument.spreadsheet',
+      'text/csv',
+    ].includes(mime)) {
+      category = 'spreadsheet';
+    } else if ([
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.oasis.opendocument.presentation',
+    ].includes(mime)) {
+      category = 'presentation';
+    } else if ([
+      'application/zip',
+      'application/x-rar-compressed',
+      'application/x-7z-compressed',
+      'application/x-tar',
+      'application/gzip',
+      'application/x-bzip2',
+    ].includes(mime)) {
+      category = 'archive';
+    } else if ([
+      'application/javascript',
+      'application/typescript',
+      'application/json',
+      'application/xml',
+      'application/x-sh',
+      'application/x-python',
+    ].includes(mime) || mime.includes('script')) {
+      category = 'code';
+    } else {
+      category = 'other';
+    }
+    
     typeBreakdown[category] = (typeBreakdown[category] || 0) + f.size;
   }
 

@@ -109,6 +109,38 @@ async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
   return user;
 }
 
+async function checkFolderMimeTypeRestriction(
+  db: ReturnType<typeof getDb>,
+  parentId: string | null | undefined,
+  mimeType: string,
+): Promise<{ allowed: boolean; allowedTypes?: string[] }> {
+  if (!parentId) return { allowed: true };
+  
+  const parentFolder = await db.select().from(files)
+    .where(and(eq(files.id, parentId), eq(files.isFolder, true)))
+    .get();
+  
+  if (!parentFolder || !parentFolder.allowedMimeTypes) {
+    return { allowed: true };
+  }
+  
+  try {
+    const allowedTypes: string[] = JSON.parse(parentFolder.allowedMimeTypes);
+    if (allowedTypes.length === 0) return { allowed: true };
+    
+    const isAllowed = allowedTypes.some((allowed) => {
+      if (allowed.endsWith('/*')) {
+        return mimeType.startsWith(allowed.slice(0, -1));
+      }
+      return mimeType === allowed;
+    });
+    
+    return { allowed: isAllowed, allowedTypes };
+  } catch {
+    return { allowed: true };
+  }
+}
+
 // ── POST /api/presign/upload ───────────────────────────────────────────────
 // Phase 1: Return a presigned PUT URL. The browser uploads directly.
 // Phase 2: Browser calls /confirm after a successful upload.
@@ -124,6 +156,17 @@ app.post('/upload', async (c) => {
   const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
   const db = getDb(c.env.DB);
   const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+
+  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
+  if (!mimeCheck.allowed) {
+    return c.json({
+      success: false,
+      error: {
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+      },
+    }, 400);
+  }
 
   // Check user quota
   const user = await getUserOrFail(db, userId);
@@ -236,6 +279,17 @@ app.post('/multipart/init', async (c) => {
   const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
   const db = getDb(c.env.DB);
   const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+
+  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
+  if (!mimeCheck.allowed) {
+    return c.json({
+      success: false,
+      error: {
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+      },
+    }, 400);
+  }
 
   // Quota checks
   const user = await getUserOrFail(db, userId);
