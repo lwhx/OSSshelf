@@ -71,6 +71,16 @@ async function apiPost<T>(path: string, data: unknown): Promise<T> {
   return res.data.data;
 }
 
+async function apiGet<T>(path: string): Promise<T> {
+  const res = await axios.get<{ success: boolean; data: T; error?: { message: string } }>(`${API_BASE}${path}`, {
+    headers: authHeaders(),
+  });
+  if (!res.data.success) {
+    throw new Error(res.data.error?.message || `API error at ${path}`);
+  }
+  return res.data.data;
+}
+
 // ── Main export ────────────────────────────────────────────────────────────
 
 export interface PresignUploadOptions {
@@ -83,6 +93,10 @@ export interface PresignUploadOptions {
   onFallback?: () => void;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
+  /** Existing task ID for resume upload (断点续传) */
+  taskId?: string;
+  /** Skip already uploaded parts (from server) */
+  skipParts?: number[];
 }
 
 export interface UploadedFile {
@@ -106,9 +120,11 @@ export async function presignUpload({
   onProgress,
   onFallback,
   signal,
+  taskId,
+  skipParts,
 }: PresignUploadOptions): Promise<UploadedFile> {
   if (file.size > MULTIPART_THRESHOLD) {
-    return multipartUpload({ file, parentId, bucketId, onProgress, onFallback, signal });
+    return multipartUpload({ file, parentId, bucketId, onProgress, onFallback, signal, taskId, skipParts });
   }
   return singlePresignUpload({ file, parentId, bucketId, onProgress, onFallback, signal });
 }
@@ -193,33 +209,74 @@ async function multipartUpload({
   onProgress,
   onFallback,
   signal,
+  taskId: existingTaskId,
+  skipParts = [],
 }: PresignUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
   const totalParts = Math.ceil(file.size / PART_SIZE);
 
-  // 使用 /api/tasks/create 创建任务记录，这样可以在任务页面追踪
-  const init = await apiPost<PresignMultipartInitResponse & { taskId?: string }>('/api/tasks/create', {
-    fileName: file.name,
-    fileSize: file.size,
-    mimeType: file.type || 'application/octet-stream',
-    parentId,
-    bucketId,
-  });
+  let taskId: string;
+  let uploadId: string;
+  let r2Key: string;
+  let resolvedBucketId: string | undefined;
+  let firstPartUrl: string | undefined;
 
-  // 检查是否返回了 useProxy（兼容旧逻辑）
-  if ('useProxy' in init && init.useProxy) {
-    onFallback?.();
-    return proxyUpload({ file, parentId, bucketId, onProgress, signal });
+  // 如果提供了现有任务ID，使用断点续传模式
+  if (existingTaskId) {
+    taskId = existingTaskId;
+    // 获取任务详情以获取 uploadId 和 r2Key
+    const taskInfo = await apiGet<{
+      uploadId: string;
+      r2Key: string;
+      bucketId: string;
+      totalParts: number;
+      uploadedParts: number[];
+      parts?: Array<{ partNumber: number; etag: string }>;
+    }>(`/api/tasks/${existingTaskId}`);
+    uploadId = taskInfo.uploadId;
+    r2Key = taskInfo.r2Key;
+    resolvedBucketId = taskInfo.bucketId;
+    // 合并服务器返回的已上传分片
+    skipParts = [...new Set([...skipParts, ...taskInfo.uploadedParts])];
+  } else {
+    // 使用 /api/tasks/create 创建任务记录，这样可以在任务页面追踪
+    const init = await apiPost<PresignMultipartInitResponse & { taskId?: string }>('/api/tasks/create', {
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      parentId,
+      bucketId,
+    });
+
+    // 检查是否返回了 useProxy（兼容旧逻辑）
+    if ('useProxy' in init && init.useProxy) {
+      onFallback?.();
+      return proxyUpload({ file, parentId, bucketId, onProgress, signal });
+    }
+
+    const initData = init as any;
+    uploadId = initData.uploadId;
+    r2Key = initData.r2Key;
+    resolvedBucketId = initData.bucketId;
+    firstPartUrl = initData.firstPartUrl;
+    taskId = initData.taskId;
+    if (!uploadId || !r2Key) {
+      throw new Error('分片上传初始化：服务器返回了无效的响应');
+    }
   }
 
-  const { uploadId, fileId, r2Key, bucketId: resolvedBucketId, firstPartUrl, taskId } = init as any;
-  if (!uploadId || !fileId || !r2Key) {
-    throw new Error('分片上传初始化：服务器返回了无效的响应');
-  }
   const parts: Array<{ partNumber: number; etag: string }> = [];
   let uploadedBytes = 0;
   let useProxyMode = corsErrorDetected;
+
+  // 计算已上传的字节数（用于进度显示）
+  const alreadyUploadedBytes = skipParts.reduce((sum, partNum) => {
+    const start = (partNum - 1) * PART_SIZE;
+    const end = Math.min(start + PART_SIZE, file.size);
+    return sum + (end - start);
+  }, 0);
+  uploadedBytes = alreadyUploadedBytes;
 
   // Abort helper (best-effort)
   const abort = async () => {
@@ -235,17 +292,19 @@ async function multipartUpload({
   };
 
   try {
+    // 需要上传的分片列表（排除已上传的）
+    const partsToUpload = Array.from({ length: totalParts }, (_, i) => i + 1).filter(
+      (partNum) => !skipParts.includes(partNum)
+    );
+
     // Upload parts in batches of MAX_CONCURRENT_PARTS
-    for (let batch = 0; batch < totalParts; batch += MAX_CONCURRENT_PARTS) {
+    for (let batch = 0; batch < partsToUpload.length; batch += MAX_CONCURRENT_PARTS) {
       if (signal?.aborted) {
         await abort();
         throw new DOMException('Upload aborted', 'AbortError');
       }
 
-      const batchParts = Array.from(
-        { length: Math.min(MAX_CONCURRENT_PARTS, totalParts - batch) },
-        (_, i) => batch + i + 1
-      );
+      const batchParts = partsToUpload.slice(batch, batch + MAX_CONCURRENT_PARTS);
 
       const batchResults = await Promise.all(
         batchParts.map(async (partNumber) => {
@@ -263,7 +322,7 @@ async function multipartUpload({
           } else {
             // 尝试直接上传
             let partUrl: string;
-            if (partNumber === 1 && firstPartUrl) {
+            if (partNumber === 1 && firstPartUrl && !skipParts.includes(1)) {
               partUrl = firstPartUrl;
             } else {
               const partData = await apiPost<PresignPartResponse>('/api/tasks/part', {
@@ -302,13 +361,29 @@ async function multipartUpload({
       );
 
       parts.push(...batchResults);
-      onProgress?.(Math.round(((batch + batchParts.length) / totalParts) * 100));
+      onProgress?.(Math.round((uploadedBytes / file.size) * 100));
     }
+
+    // 获取已上传分片的 etag（从服务器）
+    const existingParts: Array<{ partNumber: number; etag: string }> = [];
+    if (skipParts.length > 0) {
+      // 调用服务器获取已上传分片的 etag
+      const taskDetail = await apiGet<{
+        uploadedParts: number[];
+        parts?: Array<{ partNumber: number; etag: string }>;
+      }>(`/api/tasks/${taskId}`);
+      if (taskDetail.parts) {
+        existingParts.push(...taskDetail.parts);
+      }
+    }
+
+    // 合并所有分片
+    const allParts = [...existingParts, ...parts].sort((a, b) => a.partNumber - b.partNumber);
 
     // Step 3: Complete - 使用 /api/tasks/complete
     const result = await apiPost<UploadedFile>('/api/tasks/complete', {
       taskId: taskId || uploadId,
-      parts,
+      parts: allParts,
     });
 
     return result;

@@ -541,8 +541,9 @@ app.get('/:taskId', async (c) => {
   }
 
   let uploadedParts: number[] = [];
+  let parts: MultipartPart[] = [];
   try {
-    const parts = await s3ListParts(bucketConfig, task.r2Key, task.uploadId);
+    parts = await s3ListParts(bucketConfig, task.r2Key, task.uploadId);
     uploadedParts = parts.map((p) => p.partNumber);
     await db
       .update(uploadTasks)
@@ -557,6 +558,7 @@ app.get('/:taskId', async (c) => {
     data: {
       ...task,
       uploadedParts,
+      parts,
     },
   });
 });

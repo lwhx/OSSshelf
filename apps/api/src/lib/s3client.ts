@@ -551,13 +551,15 @@ export async function s3AbortMultipartUpload(config: S3BucketConfig, key: string
 
 /**
  * Upload an object to an S3-compatible bucket.
+ * @param contentLength - Required for streaming bodies; some S3 providers require Content-Length header
  */
 export async function s3Put(
   config: S3BucketConfig,
   key: string,
   body: ReadableStream | ArrayBuffer | Uint8Array,
   contentType: string,
-  metadata?: Record<string, string>
+  metadata?: Record<string, string>,
+  contentLength?: number
 ): Promise<void> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
@@ -571,6 +573,11 @@ export async function s3Put(
     for (const [k, v] of Object.entries(metadata)) {
       extraHeaders[`x-amz-meta-${k.toLowerCase()}`] = v;
     }
+  }
+
+  // 添加 Content-Length 头（某些 S3 兼容存储要求必须提供）
+  if (contentLength !== undefined) {
+    extraHeaders['content-length'] = String(contentLength);
   }
 
   const signed = await signRequest({

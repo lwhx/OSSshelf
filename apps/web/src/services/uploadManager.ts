@@ -60,6 +60,18 @@ class UploadManager {
     return new Map(this.jobs);
   }
 
+  getActiveUploadsInfo(): { count: number; hasLargeFiles: boolean; largeFileNames: string[] } {
+    const activeJobs = Array.from(this.jobs.values()).filter(
+      (j) => j.status === 'uploading' || j.status === 'pending'
+    );
+    const largeFileJobs = activeJobs.filter((j) => j.fileSize > MULTIPART_THRESHOLD);
+    return {
+      count: activeJobs.length,
+      hasLargeFiles: largeFileJobs.length > 0,
+      largeFileNames: largeFileJobs.map((j) => j.fileName),
+    };
+  }
+
   async startUpload(
     file: File,
     parentId: string | null = null,

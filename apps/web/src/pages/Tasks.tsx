@@ -8,9 +8,10 @@
  * - 任务状态监控
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tasksApi } from '@/services/api';
+import { presignUpload } from '@/services/presignUpload';
 import type { UploadTask } from '@osshelf/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -29,6 +30,7 @@ import {
   Play,
   AlertTriangle,
   FileText,
+  RotateCcw,
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -45,6 +47,8 @@ const DEFAULT_STATUS = { label: '未知', color: 'text-muted-foreground', icon: 
 export default function Tasks() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [resumingTaskId, setResumingTaskId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     data: tasks = [],
@@ -112,6 +116,74 @@ export default function Tasks() {
       }),
   });
 
+  const handleResumeUpload = async (task: UploadTask) => {
+    setResumingTaskId(task.id);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>, tasks: UploadTask[]) => {
+    const file = event.target.files?.[0];
+    if (!file || !resumingTaskId) return;
+
+    const task = tasks.find((t) => t.id === resumingTaskId);
+    if (!task) {
+      toast({ title: '任务不存在', variant: 'destructive' });
+      setResumingTaskId(null);
+      return;
+    }
+
+    // 验证文件大小是否匹配
+    if (file.size !== task.fileSize) {
+      toast({
+        title: '文件大小不匹配',
+        description: `请选择相同大小的文件（${formatBytes(task.fileSize)}）`,
+        variant: 'destructive',
+      });
+      setResumingTaskId(null);
+      return;
+    }
+
+    // 验证文件名是否匹配
+    if (file.name !== task.fileName) {
+      toast({
+        title: '文件名不匹配',
+        description: `请选择名为 "${task.fileName}" 的文件`,
+        variant: 'destructive',
+      });
+      setResumingTaskId(null);
+      return;
+    }
+
+    try {
+      toast({ title: '正在恢复上传...', description: '请勿关闭此页面' });
+
+      await presignUpload({
+        file,
+        parentId: task.parentId,
+        bucketId: task.bucketId,
+        taskId: task.id,
+        skipParts: task.uploadedParts,
+        onProgress: (percent) => {
+          console.log(`上传进度: ${percent}%`);
+        },
+      });
+
+      toast({ title: '上传完成', description: task.fileName });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (error: any) {
+      toast({
+        title: '上传失败',
+        description: error.message || '未知错误',
+        variant: 'destructive',
+      });
+    } finally {
+      setResumingTaskId(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const activeTasks = tasks.filter((t) => t.status === 'uploading' || t.status === 'pending' || t.status === 'paused');
   const completedTasks = tasks.filter(
     (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'expired'
@@ -119,6 +191,13 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => handleFileSelect(e, tasks)}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">上传任务</h1>
@@ -159,6 +238,7 @@ export default function Tasks() {
                       onDelete={() => deleteMutation.mutate(task.id)}
                       onPause={() => pauseMutation.mutate(task.id)}
                       onResume={() => resumeMutation.mutate(task.id)}
+                      onResumeUpload={() => handleResumeUpload(task)}
                     />
                   ))}
                 </div>
@@ -210,12 +290,14 @@ function TaskItem({
   onDelete,
   onPause,
   onResume,
+  onResumeUpload,
 }: {
   task: UploadTask;
   onAbort?: () => void;
   onDelete: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  onResumeUpload?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
   const progress = task.totalParts > 0 ? Math.round((task.uploadedParts.length / task.totalParts) * 100) : 0;
@@ -287,6 +369,12 @@ function TaskItem({
           <Button variant="outline" size="sm" onClick={onResume}>
             <Play className="h-3.5 w-3.5 mr-1" />
             恢复
+          </Button>
+        )}
+        {task.status === 'paused' && progress > 0 && onResumeUpload && (
+          <Button variant="outline" size="sm" onClick={onResumeUpload}>
+            <RotateCcw className="h-3.5 w-3.5 mr-1" />
+            继续上传
           </Button>
         )}
         {task.status === 'uploading' && onAbort && (

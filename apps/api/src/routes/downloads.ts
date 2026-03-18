@@ -168,7 +168,8 @@ app.post('/create', async (c) => {
           const r2Key = `files/${userId}/${fileId}/${resolvedFileName}`;
           const path = parentId ? `${parentId}/${resolvedFileName}` : `/${resolvedFileName}`;
 
-          await s3Put(bucketConfig, r2Key, readable, contentType);
+          // 传递文件大小给 s3Put，某些 S3 存储要求 Content-Length 头
+          await s3Put(bucketConfig, r2Key, readable, contentType, undefined, fileSize > 0 ? fileSize : undefined);
 
           return { fileId, r2Key, path };
         })();
