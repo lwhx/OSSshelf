@@ -358,20 +358,27 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               )}
             </div>
           ) : isOffice ? (
-            <div className="w-full h-full flex flex-col">
+            <div className="w-full h-full flex flex-col relative">
               {isWord ? (
-                officeLoading ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-muted-foreground text-sm">正在渲染文档...</div>
-                  </div>
-                ) : officeError ? (
-                  renderOfficeFallback(officeError)
-                ) : (
+                <>
+                  {officeLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                      <div className="text-muted-foreground text-sm">正在渲染文档...</div>
+                    </div>
+                  )}
+                  {officeError && (
+                    <div className="absolute inset-0 flex items-center justify-center z-10">
+                      {renderOfficeFallback(officeError)}
+                    </div>
+                  )}
                   <div
                     ref={docxContainerRef}
-                    className="w-full h-full overflow-auto bg-white dark:bg-gray-900"
+                    className={cn(
+                      'w-full h-full overflow-auto bg-white dark:bg-gray-900',
+                      officeLoading || officeError ? 'opacity-0' : 'opacity-100'
+                    )}
                   />
-                )
+                </>
               ) : isExcel ? (
                 renderOfficeFallback('Excel 表格暂不支持在线预览')
               ) : isPpt ? (
