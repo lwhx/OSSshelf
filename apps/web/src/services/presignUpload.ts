@@ -141,6 +141,20 @@ async function singlePresignUpload({
 }: PresignUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
+  // 创建上传任务记录
+  const taskRecord = await apiPost<{
+    taskId: string;
+    uploadId: string;
+    r2Key: string;
+    bucketId: string;
+  }>('/api/tasks/create', {
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType: file.type || 'application/octet-stream',
+    parentId,
+    bucketId,
+  });
+
   const presign = await apiPost<PresignUploadResponse>('/api/presign/upload', {
     fileName: file.name,
     fileSize: file.size,
@@ -180,6 +194,12 @@ async function singlePresignUpload({
     parentId,
     r2Key,
     bucketId: resolvedBucketId ?? null,
+  });
+
+  // 标记任务完成
+  await apiPost('/api/tasks/complete', {
+    taskId: taskRecord.taskId,
+    parts: [{ partNumber: 1, etag: 'single' }],
   });
 
   return result;

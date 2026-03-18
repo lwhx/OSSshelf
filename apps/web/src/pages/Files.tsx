@@ -45,7 +45,7 @@ import { FolderSettings } from '@/components/ui/FolderSettings';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
-import { uploadManager, setupBeforeUnloadWarning, removeBeforeUnloadWarning } from '@/services/uploadManager';
+import { uploadManager } from '@/services/uploadManager';
 import {
   Upload,
   FolderPlus,
@@ -871,17 +871,6 @@ export default function Files() {
 
   const activeUploads = Object.entries(uploadProgresses);
   const hasActiveUploads = activeUploads.length > 0;
-
-  useEffect(() => {
-    if (hasActiveUploads) {
-      setupBeforeUnloadWarning();
-    } else {
-      removeBeforeUnloadWarning();
-    }
-    return () => {
-      removeBeforeUnloadWarning();
-    };
-  }, [hasActiveUploads]);
 
   const viewModes: { mode: ViewMode; icon: typeof List; label: string }[] = [
     { mode: 'list', icon: List, label: '列表' },

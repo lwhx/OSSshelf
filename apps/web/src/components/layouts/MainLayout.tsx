@@ -18,18 +18,14 @@ import { StorageBar } from '@/components/ui/StorageBar';
 import { Toaster } from '@/components/ui/toaster';
 import { MobileBottomNav } from '@/components/ui/MobileBottomNav';
 import { PWAPrompt } from '@/components/ui/PWAInstallPrompt';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
-import { uploadManager } from '@/services/uploadManager';
 import {
   LayoutDashboard,
   FolderOpen,
   Share2,
   Settings,
   LogOut,
-  Menu,
-  X,
   HardDrive,
   Trash2,
   Database,
@@ -43,15 +39,9 @@ import {
   Moon,
   Monitor,
 } from 'lucide-react';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/utils';
 import { KeyboardShortcutsDialog } from '@/components/ui/KeyboardShortcutsDialog';
-
-interface UploadLeaveState {
-  hasActiveUploads: boolean;
-  hasLargeFiles: boolean;
-  largeFileNames: string[];
-}
 
 const baseNavItems = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
@@ -76,54 +66,8 @@ export default function MainLayout() {
   const [isHovering, setIsHovering] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
-  const [uploadLeaveInfo, setUploadLeaveInfo] = useState<UploadLeaveState | null>(null);
 
   const navItems = user?.role === 'admin' ? [...baseNavItems, adminNavItem] : baseNavItems;
-
-  // 处理页面刷新/关闭时的提示
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const uploadsInfo = uploadManager.getActiveUploadsInfo();
-      if (uploadsInfo.count > 0) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
-
-  // 处理内部导航的确认
-  const handleNavigationClick = useCallback(
-    (e: React.MouseEvent, path: string) => {
-      const uploadsInfo = uploadManager.getActiveUploadsInfo();
-      if (uploadsInfo.count > 0 && location.pathname !== path) {
-        e.preventDefault();
-        setUploadLeaveInfo({
-          hasActiveUploads: uploadsInfo.count > 0,
-          hasLargeFiles: uploadsInfo.hasLargeFiles,
-          largeFileNames: uploadsInfo.largeFileNames,
-        });
-        setPendingNavigation(path);
-      }
-    },
-    [location.pathname]
-  );
-
-  const handleConfirmLeave = () => {
-    if (pendingNavigation) {
-      navigate(pendingNavigation);
-    }
-    setUploadLeaveInfo(null);
-    setPendingNavigation(null);
-  };
-
-  const handleCancelLeave = () => {
-    setUploadLeaveInfo(null);
-    setPendingNavigation(null);
-  };
 
   const cycleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
@@ -295,7 +239,6 @@ export default function MainLayout() {
               <Link
                 key={item.path}
                 to={item.path}
-                onClick={(e) => handleNavigationClick(e, item.path)}
                 className={cn(
                   'flex items-center gap-3 rounded-lg transition-colors text-sm',
                   showLabel ? 'px-3 py-2.5' : 'px-2 py-2.5 justify-center',
@@ -415,7 +358,6 @@ export default function MainLayout() {
             console.log('New folder');
           }
         }}
-        onNavigate={handleNavigationClick}
       />
 
       <PWAPrompt />
@@ -424,22 +366,6 @@ export default function MainLayout() {
       <KeyboardShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
-
-      {/* 上传中断确认对话框 */}
-      <ConfirmDialog
-        isOpen={uploadLeaveInfo !== null}
-        title="上传任务进行中"
-        message={
-          uploadLeaveInfo?.hasLargeFiles
-            ? `您有正在上传的大文件任务（${uploadLeaveInfo.largeFileNames.join('、')}），离开后任务将暂停。您可以稍后到"上传任务"页面继续上传。确定要离开吗？`
-            : '您有正在上传的文件，离开后上传将被中断。确定要离开吗？'
-        }
-        confirmText="离开"
-        cancelText="留下"
-        variant="destructive"
-        onConfirm={handleConfirmLeave}
-        onCancel={handleCancelLeave}
-      />
     </div>
   );
 }
