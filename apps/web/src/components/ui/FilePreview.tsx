@@ -6,12 +6,13 @@
  * - 图片/视频/音频预览
  * - PDF文档预览
  * - 文本/代码预览
- * - Office文档预览
+ * - Office文档预览（Word本地渲染）
  * - 预览信息展示
  */
 
-import { useEffect, useState, useRef } from 'react';
-import { X, Download, Share2, FileText, Volume2, FileCode, FileSpreadsheet, Presentation } from 'lucide-react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { renderAsync } from 'docx-preview';
+import { X, Download, Share2, FileText, Volume2, FileSpreadsheet, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { filesApi, previewApi } from '@/services/api';
@@ -46,9 +47,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
-  const [officePreviewUrl, setOfficePreviewUrl] = useState<string | null>(null);
-  const [officePreviewError, setOfficePreviewError] = useState(false);
+  const [officeLoading, setOfficeLoading] = useState(false);
+  const [officeError, setOfficeError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const docxContainerRef = useRef<HTMLDivElement>(null);
 
   const canPreview = isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -62,14 +64,24 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     previewInfo?.previewType === 'code';
   const isOffice = previewInfo?.previewType === 'office';
 
+  const isWord =
+    file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.mimeType === 'application/msword';
+  const isExcel =
+    file.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    file.mimeType === 'application/vnd.ms-excel';
+  const isPpt =
+    file.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    file.mimeType === 'application/vnd.ms-powerpoint';
+
   useEffect(() => {
     let cancelled = false;
     setResolvedUrl(null);
     setLoadError(false);
     setTextContent(null);
     setPreviewInfo(null);
-    setOfficePreviewUrl(null);
-    setOfficePreviewError(false);
+    setOfficeLoading(false);
+    setOfficeError(null);
 
     previewApi
       .getInfo(file.id)
@@ -113,12 +125,51 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       });
   }, [file.id, resolvedUrl, isText, canPreview]);
 
-  useEffect(() => {
-    if (!isOffice || !resolvedUrl) return;
+  const loadDocxPreview = useCallback(async () => {
+    if (!isWord || !resolvedUrl || !docxContainerRef.current) return;
 
-    const encodedUrl = encodeURIComponent(resolvedUrl);
-    setOfficePreviewUrl(`https://view.officeapps.live.com/op/embed.aspx?src=${encodedUrl}`);
-  }, [isOffice, resolvedUrl]);
+    setOfficeLoading(true);
+    setOfficeError(null);
+
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error('文件加载失败');
+      }
+      const arrayBuffer = await response.arrayBuffer();
+
+      if (docxContainerRef.current) {
+        docxContainerRef.current.innerHTML = '';
+        await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
+          className: 'docx-preview-wrapper',
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          ignoreFonts: false,
+          breakPages: true,
+          ignoreLastRenderedPageBreak: true,
+          experimental: false,
+          trimXmlDeclaration: true,
+          useBase64URL: true,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+        });
+      }
+    } catch (err) {
+      console.error('DOCX preview error:', err);
+      setOfficeError('文档预览失败，请下载查看');
+    } finally {
+      setOfficeLoading(false);
+    }
+  }, [isWord, resolvedUrl]);
+
+  useEffect(() => {
+    if (isWord && resolvedUrl) {
+      loadDocxPreview();
+    }
+  }, [isWord, resolvedUrl, loadDocxPreview]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -136,6 +187,32 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       return <Presentation className="h-6 w-6" />;
     return <FileText className="h-6 w-6" />;
   };
+
+  const getOfficeTypeName = () => {
+    if (isWord) return 'Word 文档';
+    if (isExcel) return 'Excel 表格';
+    if (isPpt) return 'PowerPoint 演示文稿';
+    return 'Office 文档';
+  };
+
+  const renderOfficeFallback = (message?: string) => (
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center py-12 px-6 space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-xl bg-primary/10 flex items-center justify-center">
+          {getOfficeIcon()}
+        </div>
+        <div>
+          <p className="font-medium">{file.name}</p>
+          <p className="text-sm text-muted-foreground mt-1">{getOfficeTypeName()}</p>
+          <p className="text-xs text-muted-foreground mt-2">{message || '暂不支持在线预览，请下载查看'}</p>
+        </div>
+        <Button onClick={() => onDownload(file)}>
+          <Download className="h-4 w-4 mr-2" />
+          下载文件
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -257,42 +334,25 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             </div>
           ) : isOffice ? (
             <div className="w-full h-full flex flex-col">
-              {officePreviewError ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center py-12 px-6 space-y-4">
-                    <div className="w-16 h-16 mx-auto rounded-xl bg-primary/10 flex items-center justify-center">
-                      {getOfficeIcon()}
-                    </div>
-                    <div>
-                      <p className="font-medium">{file.name}</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {file.mimeType?.includes('word')
-                          ? 'Word 文档'
-                          : file.mimeType?.includes('excel')
-                            ? 'Excel 表格'
-                            : file.mimeType?.includes('powerpoint')
-                              ? 'PowerPoint 演示文稿'
-                              : 'Office 文档'}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-2">在线预览不可用，请下载查看</p>
-                    </div>
-                    <Button onClick={() => onDownload(file)}>
-                      <Download className="h-4 w-4 mr-2" />
-                      下载文件
-                    </Button>
+              {isWord ? (
+                officeLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground text-sm">正在渲染文档...</div>
                   </div>
-                </div>
-              ) : officePreviewUrl ? (
-                <iframe
-                  src={officePreviewUrl}
-                  className="w-full h-full border-0"
-                  title={file.name}
-                  onError={() => setOfficePreviewError(true)}
-                />
+                ) : officeError ? (
+                  renderOfficeFallback(officeError)
+                ) : (
+                  <div
+                    ref={docxContainerRef}
+                    className="w-full h-full overflow-auto bg-white dark:bg-gray-900"
+                  />
+                )
+              ) : isExcel ? (
+                renderOfficeFallback('Excel 表格暂不支持在线预览')
+              ) : isPpt ? (
+                renderOfficeFallback('PowerPoint 暂不支持在线预览')
               ) : (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-muted-foreground text-sm">加载预览...</div>
-                </div>
+                renderOfficeFallback()
               )}
             </div>
           ) : null}
