@@ -93,6 +93,41 @@
 - 🔍 搜索建议自动补全
 - 🏷️ 标签点击筛选
 
+### 文件预览
+
+支持多种文件类型的在线预览，无需下载即可查看文件内容：
+
+#### 支持的预览类型
+
+| 类型 | 支持格式 | 预览方式 |
+| ---- | -------- | -------- |
+| 🖼️ **图片** | JPG, PNG, GIF, WebP, SVG, BMP 等 | 浏览器原生渲染 |
+| 🎬 **视频** | MP4, WebM, MOV, AVI 等 | HTML5 Video 播放器 |
+| 🎵 **音频** | MP3, WAV, OGG, FLAC 等 | HTML5 Audio 播放器 |
+| 📄 **PDF** | PDF 文档 | iframe 内嵌渲染 |
+| 📝 **文本** | TXT, LOG, CSV 等 | 文本预览 |
+| 💻 **代码** | JS, TS, PY, JAVA, GO, RS 等 | 语法高亮预览 |
+| 📋 **数据** | JSON, XML | 格式化预览 |
+| 📖 **Markdown** | MD, MARKDOWN | 文本预览 |
+| 📝 **Word** | DOC, DOCX | docx-preview 本地渲染 |
+| 📊 **Excel** | XLS, XLSX | 暂不支持（显示下载提示） |
+| 📈 **PowerPoint** | PPT, PPTX | 暂不支持（显示下载提示） |
+
+#### 预览技术实现
+
+| 类型 | 技术方案 | 特点 |
+| ---- | -------- | ---- |
+| 图片/视频/音频 | 浏览器原生 + presigned URL | 支持流式加载，节省带宽 |
+| PDF | iframe + presigned URL | 支持分页、缩放 |
+| 文本/代码 | API 获取内容 + 前端渲染 | 支持 10MB 以内文件 |
+| Word 文档 | docx-preview 库本地渲染 | 无需公网访问，隐私安全 |
+
+#### 预览限制
+
+- 单文件预览大小限制：**10MB**
+- Word 文档：复杂格式可能渲染不完整，建议下载查看
+- Excel/PowerPoint：暂不支持在线预览，请下载查看
+
 ---
 
 ## 技术架构
