@@ -64,6 +64,15 @@ export const DEVICE_SESSION_EXPIRY = 30 * 24 * 60 * 60 * 1000;
 
 export const UPLOAD_TASK_EXPIRY = 24 * 60 * 60 * 1000;
 
+export const OFFICE_MIME_TYPES = [
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+] as const;
+
 export const PREVIEWABLE_MIME_TYPES = [
   'image/',
   'video/',
@@ -72,7 +81,23 @@ export const PREVIEWABLE_MIME_TYPES = [
   'text/',
   'application/json',
   'application/xml',
-];
+  ...OFFICE_MIME_TYPES,
+] as const;
+
+export function isPreviewableMimeType(mimeType: string | null | undefined): boolean {
+  if (!mimeType) return false;
+
+  if (mimeType.startsWith('image/')) return true;
+  if (mimeType.startsWith('video/')) return true;
+  if (mimeType.startsWith('audio/')) return true;
+  if (mimeType === 'application/pdf') return true;
+  if (mimeType.startsWith('text/')) return true;
+  if (mimeType === 'application/json') return true;
+  if (mimeType === 'application/xml') return true;
+  if (OFFICE_MIME_TYPES.includes(mimeType as typeof OFFICE_MIME_TYPES[number])) return true;
+
+  return false;
+}
 
 export const CODE_HIGHLIGHT_EXTENSIONS: Record<string, string> = {
   '.js': 'javascript',

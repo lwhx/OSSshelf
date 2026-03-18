@@ -14,7 +14,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, CODE_HIGHLIGHT_EXTENSIONS, PREVIEWABLE_MIME_TYPES } from '@osshelf/shared';
+import { ERROR_CODES, CODE_HIGHLIGHT_EXTENSIONS, OFFICE_MIME_TYPES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { s3Get } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
@@ -98,16 +98,7 @@ function isPreviewable(mimeType: string | null, fileName: string): { previewable
     return { previewable: true, type: 'code' };
   }
 
-  const officeTypes = [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ];
-
-  if (officeTypes.includes(mimeType)) {
+  if (OFFICE_MIME_TYPES.includes(mimeType as typeof OFFICE_MIME_TYPES[number])) {
     return { previewable: true, type: 'office' };
   }
 
@@ -320,16 +311,7 @@ app.get('/:id/office', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
-  const officeTypes = [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ];
-
-  if (!officeTypes.includes(file.mimeType || '')) {
+  if (!OFFICE_MIME_TYPES.includes(file.mimeType as typeof OFFICE_MIME_TYPES[number])) {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不支持该文件类型' } }, 400);
   }
 

@@ -24,7 +24,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, OFFICE_MIME_TYPES, isPreviewableMimeType } from '@osshelf/shared';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -534,24 +534,7 @@ app.get('/preview/:id', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
   }
 
-  const officeTypes = [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ];
-
-  const previewable =
-    file.mimeType?.startsWith('image/') ||
-    file.mimeType?.startsWith('video/') ||
-    file.mimeType?.startsWith('audio/') ||
-    file.mimeType === 'application/pdf' ||
-    file.mimeType?.startsWith('text/') ||
-    officeTypes.includes(file.mimeType || '');
-
-  if (!previewable) {
+  if (!isPreviewableMimeType(file.mimeType)) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400

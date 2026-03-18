@@ -14,7 +14,7 @@ import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm'
 import { getDb, files, users, storageBuckets, filePermissions } from '../db';
 import { checkFilePermission } from './permissions';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
@@ -81,22 +81,7 @@ app.get('/:id/preview', async (c) => {
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   if (file.isFolder)
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法预览文件夹' } }, 400);
-  const officeTypes = [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ];
-  const previewable =
-    file.mimeType?.startsWith('image/') ||
-    file.mimeType?.startsWith('video/') ||
-    file.mimeType?.startsWith('audio/') ||
-    file.mimeType === 'application/pdf' ||
-    file.mimeType?.startsWith('text/') ||
-    officeTypes.includes(file.mimeType || '');
-  if (!previewable)
+  if (!isPreviewableMimeType(file.mimeType))
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400

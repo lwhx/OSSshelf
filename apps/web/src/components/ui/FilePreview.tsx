@@ -62,7 +62,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     file.mimeType === 'application/json' ||
     file.mimeType === 'application/xml' ||
     previewInfo?.previewType === 'code';
-  const isOffice = previewInfo?.previewType === 'office';
 
   const isWord =
     file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -73,6 +72,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isPpt =
     file.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
     file.mimeType === 'application/vnd.ms-powerpoint';
+  const isOffice = isWord || isExcel || isPpt;
 
   useEffect(() => {
     let cancelled = false;
@@ -126,44 +126,69 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   }, [file.id, resolvedUrl, isText, canPreview]);
 
   const loadDocxPreview = useCallback(async () => {
-    if (!isWord || !resolvedUrl || !docxContainerRef.current) return;
+    if (!isWord || !resolvedUrl || !docxContainerRef.current) {
+      console.log('DOCX preview skipped:', { isWord, resolvedUrl: !!resolvedUrl, container: !!docxContainerRef.current });
+      return;
+    }
 
     setOfficeLoading(true);
     setOfficeError(null);
 
+    console.log('DOCX preview starting, file size:', file.size, 'bytes');
+
     try {
       const response = await fetch(resolvedUrl);
       if (!response.ok) {
-        throw new Error('文件加载失败');
+        throw new Error(`文件加载失败: ${response.status}`);
       }
       const arrayBuffer = await response.arrayBuffer();
 
-      if (docxContainerRef.current) {
-        docxContainerRef.current.innerHTML = '';
-        await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
-          className: 'docx-preview-wrapper',
-          inWrapper: true,
-          ignoreWidth: false,
-          ignoreHeight: false,
-          ignoreFonts: false,
-          breakPages: true,
-          ignoreLastRenderedPageBreak: true,
-          experimental: false,
-          trimXmlDeclaration: true,
-          useBase64URL: true,
-          renderHeaders: true,
-          renderFooters: true,
-          renderFootnotes: true,
-          renderEndnotes: true,
-        });
+      console.log('DOCX file loaded, buffer size:', arrayBuffer.byteLength);
+
+      if (!docxContainerRef.current) {
+        throw new Error('容器不可用');
       }
+
+      if (arrayBuffer.byteLength === 0) {
+        throw new Error('文件内容为空');
+      }
+
+      docxContainerRef.current.innerHTML = '';
+
+      console.log('DOCX rendering started...');
+
+      await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
+        className: 'docx-preview-wrapper',
+        inWrapper: true,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        ignoreFonts: false,
+        breakPages: true,
+        ignoreLastRenderedPageBreak: true,
+        experimental: false,
+        trimXmlDeclaration: true,
+        useBase64URL: true,
+        renderHeaders: true,
+        renderFooters: true,
+        renderFootnotes: true,
+        renderEndnotes: true,
+      });
+
+      console.log('DOCX rendering completed, children:', docxContainerRef.current.children.length);
+
+      const renderedContent = docxContainerRef.current.querySelector('.docx-preview-wrapper');
+      if (!renderedContent || docxContainerRef.current.children.length === 0) {
+        throw new Error('文档渲染结果为空');
+      }
+
+      console.log('DOCX preview successful');
     } catch (err) {
       console.error('DOCX preview error:', err);
-      setOfficeError('文档预览失败，请下载查看');
+      setOfficeError(err instanceof Error ? err.message : '文档预览失败，请下载查看');
     } finally {
       setOfficeLoading(false);
     }
-  }, [isWord, resolvedUrl]);
+  }, [isWord, resolvedUrl, file.size]);
 
   useEffect(() => {
     if (isWord && resolvedUrl) {

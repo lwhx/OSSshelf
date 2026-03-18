@@ -78,26 +78,10 @@ export function getFileCategory(mimeType: string | null | undefined, isFolder?: 
   return 'unknown';
 }
 
+import { isPreviewableMimeType, OFFICE_MIME_TYPES } from '@osshelf/shared';
+
 export function isPreviewable(mimeType: string | null | undefined): boolean {
-  if (!mimeType) return false;
-
-  if (mimeType.startsWith('image/')) return true;
-  if (mimeType.startsWith('video/')) return true;
-  if (mimeType.startsWith('audio/')) return true;
-  if (mimeType === 'application/pdf') return true;
-  if (mimeType.startsWith('text/')) return true;
-
-  const officeTypes = [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ];
-  if (officeTypes.includes(mimeType)) return true;
-
-  return false;
+  return isPreviewableMimeType(mimeType);
 }
 
 /** Color class for each category */
