@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
-import { getDb, uploadTasks, users, storageBuckets, files } from '../db';
+import { getDb, uploadTasks, users, storageBuckets, files, telegramFileRefs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import {
   ERROR_CODES,
@@ -36,6 +36,12 @@ import {
 } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
+import {
+  tgUploadFile,
+  TG_MAX_FILE_SIZE,
+  type TelegramBotConfig,
+} from '../lib/telegramClient';
+import { decryptSecret } from '../lib/s3client';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -120,6 +126,65 @@ app.post('/create', async (c) => {
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
   if (!bucketConfig) {
     return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
+  }
+
+  // ── Telegram 桶：返回特殊标记，让前端走代理上传路径 ──────────────────
+  if (bucketConfig.provider === 'telegram') {
+    // 检查文件大小限制
+    if (fileSize > TG_MAX_FILE_SIZE) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.FILE_TOO_LARGE,
+            message: `Telegram 存储桶单文件上限 50MB，当前文件 ${(fileSize / 1024 / 1024).toFixed(1)}MB`,
+          },
+        },
+        413
+      );
+    }
+
+    const taskId = crypto.randomUUID();
+    const fileId = crypto.randomUUID();
+    const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + UPLOAD_TASK_EXPIRY).toISOString();
+
+    // 存一条 pending 任务记录方便前端追踪
+    await db.insert(uploadTasks).values({
+      id: taskId,
+      userId,
+      fileName,
+      fileSize,
+      mimeType: mimeType || null,
+      parentId: parentId || null,
+      bucketId: bucketConfig.id,
+      r2Key,
+      uploadId: 'telegram',
+      totalParts: 1,
+      uploadedParts: '[]',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        taskId,
+        fileId,
+        uploadId: 'telegram',
+        r2Key,
+        bucketId: bucketConfig.id,
+        totalParts: 1,
+        partSize: fileSize,
+        isTelegramUpload: true, // 前端识别标志
+        proxyUploadUrl: `/api/tasks/telegram-upload`,
+        isSmallFile: true,
+        expiresAt,
+      },
+    });
   }
 
   const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
@@ -436,6 +501,131 @@ app.post('/part-proxy', async (c) => {
   return c.json({ success: true, data: { partNumber, etag } });
 });
 
+// ── POST /api/tasks/telegram-upload ─────────────────────────────────────
+// 接收前端 multipart 文件，转发到 Telegram Bot API，完成后写入 DB
+app.post('/telegram-upload', async (c) => {
+  const userId = c.get('userId')!;
+  const contentType = c.req.header('Content-Type') || '';
+  if (!contentType.includes('multipart/form-data')) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data' } }, 400);
+  }
+
+  const formData = await c.req.formData();
+  const taskId = formData.get('taskId') as string | null;
+  const fileBlob = formData.get('file') as File | null;
+
+  if (!taskId || !fileBlob) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId 或 file' } }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const encKey = getEncryptionKey(c.env);
+
+  const task = await db
+    .select()
+    .from(uploadTasks)
+    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
+    .get();
+
+  if (!task) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+  }
+  if (task.uploadId !== 'telegram') {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 上传任务' } }, 400);
+  }
+  if (new Date(task.expiresAt) < new Date()) {
+    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+  }
+
+  // 获取 Telegram 桶配置
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
+    .where(and(eq(storageBuckets.id, task.bucketId!), eq(storageBuckets.userId, userId)))
+    .get();
+
+  if (!bucket || bucket.provider !== 'telegram') {
+    return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '找不到 Telegram 存储桶' } }, 404);
+  }
+
+  const botToken = await decryptSecret(bucket.accessKeyId, encKey);
+  const tgConfig: TelegramBotConfig = {
+    botToken,
+    chatId: bucket.bucketName,
+    apiBase: bucket.endpoint || undefined,
+  };
+
+  const now = new Date().toISOString();
+  const caption = `📁 ${task.fileName}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
+
+  let tgResult;
+  try {
+    const fileBuffer = await fileBlob.arrayBuffer();
+    tgResult = await tgUploadFile(tgConfig, fileBuffer, task.fileName, task.mimeType, caption);
+  } catch (e: any) {
+    await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
+    return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
+  }
+
+  // 生成 fileId（使用 r2Key 中内嵌的那个 UUID 保持一致）
+  const r2KeyParts = task.r2Key.split('/');
+  const fileId = r2KeyParts[2] || crypto.randomUUID();
+  const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
+
+  // 写入 files 表
+  await db.insert(files).values({
+    id: fileId,
+    userId,
+    parentId: task.parentId,
+    name: task.fileName,
+    path,
+    type: 'file',
+    size: task.fileSize,
+    r2Key: task.r2Key,
+    mimeType: task.mimeType,
+    hash: null,
+    isFolder: false,
+    bucketId: task.bucketId,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  });
+
+  // 写入 telegram_file_refs
+  await db.insert(telegramFileRefs).values({
+    id: crypto.randomUUID(),
+    fileId,
+    r2Key: task.r2Key,
+    tgFileId: tgResult.fileId,
+    tgFileSize: tgResult.fileSize,
+    bucketId: task.bucketId!,
+    createdAt: now,
+  });
+
+  // 更新用户存储用量 & 桶统计
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (user) {
+    await db.update(users).set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now }).where(eq(users.id, userId));
+  }
+  await updateBucketStats(db, task.bucketId!, task.fileSize, 1);
+
+  // 标记任务完成
+  await db.update(uploadTasks).set({ status: 'completed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
+
+  return c.json({
+    success: true,
+    data: {
+      id: fileId,
+      name: task.fileName,
+      size: task.fileSize,
+      mimeType: task.mimeType,
+      path,
+      bucketId: task.bucketId,
+      createdAt: now,
+    },
+  });
+});
+
 app.post('/complete', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -483,7 +673,23 @@ app.post('/complete', async (c) => {
     }
 
     const isSmallFile = !task.uploadId || task.uploadId === '';
+    const isTelegramTask = task.uploadId === 'telegram';
     const now = new Date().toISOString();
+
+    // Telegram 任务已在 /telegram-upload 端点完成全部处理，直接返回
+    if (isTelegramTask) {
+      return c.json({
+        success: true,
+        data: {
+          id: taskId,
+          name: task.fileName,
+          size: task.fileSize,
+          mimeType: task.mimeType,
+          bucketId: task.bucketId,
+          createdAt: now,
+        },
+      });
+    }
 
     if (!isSmallFile) {
       // 大文件：校验分片数量并合并

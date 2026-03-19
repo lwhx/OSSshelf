@@ -182,6 +182,8 @@ async function singleUpload(
     bucketId: string;
     uploadUrl?: string;
     isSmallFile?: boolean;
+    isTelegramUpload?: boolean;
+    proxyUploadUrl?: string;
   }>('/api/tasks/create', {
     fileName: task.fileName,
     fileSize: task.fileSize,
@@ -190,7 +192,33 @@ async function singleUpload(
     bucketId: task.bucketId,
   });
 
-  const { taskId, uploadUrl } = init;
+  const { taskId, isTelegramUpload, proxyUploadUrl } = init;
+
+  // ── Telegram 上传路径 ──────────────────────────────────────────────────
+  if (isTelegramUpload && proxyUploadUrl) {
+    onProgress(10, Math.round(task.fileSize * 0.1));
+
+    const formData = new FormData();
+    formData.append('taskId', taskId);
+    formData.append('file', new Blob([task.fileBuffer], { type: task.mimeType }), task.fileName);
+
+    const res = await fetch(`${API_BASE}${proxyUploadUrl}`, {
+      method: 'POST',
+      headers: setAuthHeaders(),
+      body: formData,
+    });
+
+    const json = await res.json() as any;
+    if (!json.success) {
+      throw new Error(json.error?.message || 'Telegram 上传失败');
+    }
+
+    onProgress(100, task.fileSize);
+    return { fileId: json.data.id, fileName: json.data.name };
+  }
+
+  // ── 普通预签名上传路径 ─────────────────────────────────────────────────
+  const { uploadUrl } = init;
 
   if (!uploadUrl) {
     throw new Error('小文件上传初始化失败：服务器未返回上传 URL');
