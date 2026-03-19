@@ -7,29 +7,43 @@
  * - 生成预签名下载URL
  * - 分片上传初始化与管理
  * - 上传确认与完成
+ *
+ * 浏览器直接与对象存储交互，无需服务器代理
+ *
+ * 端点:
+ * - POST /api/presign/upload - 获取上传URL
+ * - POST /api/presign/multipart/init - 初始化分片上传
+ * - POST /api/presign/multipart/part - 获取分片上传URL
+ * - POST /api/presign/multipart/complete - 完成分片上传
+ * - POST /api/presign/multipart/abort - 取消分片上传
+ * - GET /api/presign/download/:id - 获取下载URL
+ * - GET /api/presign/preview/:id - 获取预览URL
  */
 
 import { Hono } from 'hono';
-import { getDb } from '../db';
+import { eq, and, isNull } from 'drizzle-orm';
+import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, OFFICE_MIME_TYPES, isPreviewableMimeType } from '@osshelf/shared';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
-  getPresignedUploadUrl,
-  confirmUpload,
-  initMultipartUpload,
-  getMultipartPartUrl,
-  completeMultipartUpload,
-  abortMultipartUpload,
-  getPresignedDownloadUrl,
-  getPresignedPreviewUrl,
-} from '../services/presign.service';
-import type { MultipartPart } from '../lib/s3client';
+  s3PresignUrl,
+  s3PresignUploadPart,
+  s3CreateMultipartUpload,
+  s3CompleteMultipartUpload,
+  s3AbortMultipartUpload,
+  s3UploadPart,
+  type MultipartPart,
+} from '../lib/s3client';
+import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+
+// ── Validation schemas ─────────────────────────────────────────────────────
 
 const presignUploadSchema = z.object({
   fileName: z.string().min(1, '文件名不能为空').max(1024),
@@ -89,6 +103,22 @@ const multipartAbortSchema = z.object({
   bucketId: z.string().nullable().optional(),
 });
 
+// ── Shared helpers ─────────────────────────────────────────────────────────
+
+/** 1-hour presign window for upload, 6-hour for download (large files take time) */
+const UPLOAD_EXPIRY = 3600;
+const DOWNLOAD_EXPIRY = 21600;
+
+async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) throw new Error('用户不存在');
+  return user;
+}
+
+// ── POST /api/presign/upload ───────────────────────────────────────────────
+// Phase 1: Return a presigned PUT URL. The browser uploads directly.
+// Phase 2: Browser calls /confirm after a successful upload.
+
 app.post('/upload', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -104,20 +134,63 @@ app.post('/upload', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const uploadResult = await getPresignedUploadUrl(c.env, db, encKey, userId, {
-    fileName,
-    fileSize,
-    mimeType,
-    parentId,
-    bucketId: requestedBucketId,
-  });
-
-  if (!uploadResult.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: uploadResult.error } }, 400);
+  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
+  if (!mimeCheck.allowed) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+        },
+      },
+      400
+    );
   }
 
-  return c.json({ success: true, data: uploadResult.data });
+  const user = await getUserOrFail(db, userId);
+  if (user.storageUsed + fileSize > user.storageQuota) {
+    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+  }
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
+
+  // No S3 config → tell frontend to use the proxy upload route
+  if (!bucketConfig) {
+    return c.json({ success: true, data: { useProxy: true } });
+  }
+
+  // Telegram 桶不支持预签名上传，让前端使用代理上传
+  if (bucketConfig.provider === 'telegram') {
+    return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
+  }
+
+  // Check per-bucket quota
+  const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
+  if (quotaErr) {
+    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+  }
+
+  const fileId = crypto.randomUUID();
+  const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
+
+  const uploadUrl = await s3PresignUrl(bucketConfig, 'PUT', r2Key, UPLOAD_EXPIRY, mimeType);
+
+  return c.json({
+    success: true,
+    data: {
+      uploadUrl,
+      fileId,
+      r2Key,
+      bucketId: bucketConfig.id,
+      expiresIn: UPLOAD_EXPIRY,
+    },
+  });
 });
+
+// ── POST /api/presign/confirm ──────────────────────────────────────────────
+// Called by the browser after a successful direct PUT upload.
+// Creates the DB record and updates storage stats.
 
 app.post('/confirm', async (c) => {
   const userId = c.get('userId')!;
@@ -133,18 +206,55 @@ app.post('/confirm', async (c) => {
   const { fileId, fileName, fileSize, mimeType, parentId, r2Key, bucketId } = result.data;
   const db = getDb(c.env.DB);
 
-  const confirmResult = await confirmUpload(c.env, db, userId, {
-    fileId,
-    fileName,
-    fileSize,
-    mimeType,
-    parentId,
+  // Guard: check file ID not already used (idempotency protection)
+  const existing = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (existing) {
+    return c.json({ success: true, data: { id: existing.id, name: existing.name, alreadyConfirmed: true } });
+  }
+
+  const now = new Date().toISOString();
+  const path = parentId ? `${parentId}/${fileName}` : `/${fileName}`;
+
+  await db.insert(files).values({
+    id: fileId,
+    userId,
+    parentId: parentId || null,
+    name: fileName,
+    path,
+    type: 'file',
+    size: fileSize,
     r2Key,
-    bucketId,
+    mimeType: mimeType || null,
+    hash: null,
+    isFolder: false,
+    bucketId: bucketId || null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
   });
 
-  return c.json({ success: true, data: confirmResult.data });
+  // Update user storage usage
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (user) {
+    await db
+      .update(users)
+      .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  // Update bucket stats
+  if (bucketId) {
+    await updateBucketStats(db, bucketId, fileSize, 1);
+  }
+
+  return c.json({
+    success: true,
+    data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketId || null, createdAt: now },
+  });
 });
+
+// ── POST /api/presign/multipart/init ──────────────────────────────────────
+// Start a multipart upload. Returns UploadId + presigned part URL for part 1.
 
 app.post('/multipart/init', async (c) => {
   const userId = c.get('userId')!;
@@ -161,20 +271,62 @@ app.post('/multipart/init', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const initResult = await initMultipartUpload(c.env, db, encKey, userId, {
-    fileName,
-    fileSize,
-    mimeType,
-    parentId,
-    bucketId: requestedBucketId,
-  });
-
-  if (!initResult.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: initResult.error } }, 400);
+  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
+  if (!mimeCheck.allowed) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+        },
+      },
+      400
+    );
   }
 
-  return c.json({ success: true, data: initResult.data });
+  // Quota checks
+  const user = await getUserOrFail(db, userId);
+  if (user.storageUsed + fileSize > user.storageQuota) {
+    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+  }
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
+  if (!bucketConfig) {
+    return c.json({ success: true, data: { useProxy: true } });
+  }
+
+  // Telegram 桶不支持分片上传，回落到代理上传
+  if (bucketConfig.provider === 'telegram') {
+    return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
+  }
+  if (quotaErr) {
+    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+  }
+
+  const fileId = crypto.randomUUID();
+  const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
+
+  const uploadId = await s3CreateMultipartUpload(bucketConfig, r2Key, mimeType || 'application/octet-stream');
+
+  // Pre-generate part URL for part 1 so the frontend can start immediately
+  const firstPartUrl = await s3PresignUploadPart(bucketConfig, r2Key, uploadId, 1, UPLOAD_EXPIRY);
+
+  return c.json({
+    success: true,
+    data: {
+      uploadId,
+      fileId,
+      r2Key,
+      bucketId: bucketConfig.id,
+      firstPartUrl,
+      expiresIn: UPLOAD_EXPIRY,
+    },
+  });
 });
+
+// ── POST /api/presign/multipart/part ──────────────────────────────────────
+// Get a presigned URL for uploading a specific part.
 
 app.post('/multipart/part', async (c) => {
   const userId = c.get('userId')!;
@@ -191,19 +343,18 @@ app.post('/multipart/part', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const partResult = await getMultipartPartUrl(db, encKey, userId, {
-    r2Key,
-    uploadId,
-    partNumber,
-    bucketId,
-  });
-
-  if (!partResult.success) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: partResult.error } }, 400);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
   }
 
-  return c.json({ success: true, data: partResult.data });
+  const partUrl = await s3PresignUploadPart(bucketConfig, r2Key, uploadId, partNumber, UPLOAD_EXPIRY);
+
+  return c.json({ success: true, data: { partUrl, partNumber, expiresIn: UPLOAD_EXPIRY } });
 });
+
+// ── POST /api/presign/multipart/complete ──────────────────────────────────
+// Finalize the multipart upload + write the DB record.
 
 app.post('/multipart/complete', async (c) => {
   const userId = c.get('userId')!;
@@ -220,24 +371,58 @@ app.post('/multipart/complete', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const completeResult = await completeMultipartUpload(c.env, db, encKey, userId, {
-    fileId,
-    fileName,
-    fileSize,
-    mimeType,
-    parentId,
-    r2Key,
-    uploadId,
-    bucketId,
-    parts: parts as MultipartPart[],
-  });
-
-  if (!completeResult.success) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: completeResult.error } }, 400);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
   }
 
-  return c.json({ success: true, data: completeResult.data });
+  // Guard: idempotency
+  const existing = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (existing) {
+    return c.json({ success: true, data: { id: existing.id, name: existing.name, alreadyConfirmed: true } });
+  }
+
+  // Complete the S3 multipart upload
+  await s3CompleteMultipartUpload(bucketConfig, r2Key, uploadId, parts as MultipartPart[]);
+
+  // Write DB record
+  const now = new Date().toISOString();
+  const path = parentId ? `${parentId}/${fileName}` : `/${fileName}`;
+
+  await db.insert(files).values({
+    id: fileId,
+    userId,
+    parentId: parentId || null,
+    name: fileName,
+    path,
+    type: 'file',
+    size: fileSize,
+    r2Key,
+    mimeType: mimeType || null,
+    hash: null,
+    isFolder: false,
+    bucketId: bucketConfig.id,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  });
+
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (user) {
+    await db
+      .update(users)
+      .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+  await updateBucketStats(db, bucketConfig.id, fileSize, 1);
+
+  return c.json({
+    success: true,
+    data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketConfig.id, createdAt: now },
+  });
 });
+
+// ── POST /api/presign/multipart/abort ─────────────────────────────────────
 
 app.post('/multipart/abort', async (c) => {
   const userId = c.get('userId')!;
@@ -254,18 +439,17 @@ app.post('/multipart/abort', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const abortResult = await abortMultipartUpload(db, encKey, userId, {
-    r2Key,
-    uploadId,
-    bucketId,
-  });
-
-  if (!abortResult.success) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: abortResult.error } }, 400);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
   }
 
-  return c.json({ success: true, data: abortResult.data });
+  await s3AbortMultipartUpload(bucketConfig, r2Key, uploadId);
+
+  return c.json({ success: true, data: { message: '分片上传已中止' } });
 });
+
+// ── GET /api/presign/download/:id ─────────────────────────────────────────
 
 app.get('/download/:id', async (c) => {
   const userId = c.get('userId')!;
@@ -273,15 +457,39 @@ app.get('/download/:id', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const result = await getPresignedDownloadUrl(db, encKey, userId, fileId);
-
-  if (!result.success) {
-    const statusCode = result.error === '文件不存在' ? 404 : 400;
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: result.error } }, statusCode);
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .get();
+  if (!file) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  }
+  if (file.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
   }
 
-  return c.json({ success: true, data: result.data });
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+  if (!bucketConfig) {
+    // Fall back to proxy download
+    return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/download` } });
+  }
+
+  const downloadUrl = await s3PresignUrl(bucketConfig, 'GET', file.r2Key, DOWNLOAD_EXPIRY);
+
+  return c.json({
+    success: true,
+    data: {
+      downloadUrl,
+      fileName: file.name,
+      mimeType: file.mimeType,
+      size: file.size,
+      expiresIn: DOWNLOAD_EXPIRY,
+    },
+  });
 });
+
+// ── GET /api/presign/preview/:id ──────────────────────────────────────────
 
 app.get('/preview/:id', async (c) => {
   const userId = c.get('userId')!;
@@ -289,14 +497,52 @@ app.get('/preview/:id', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
-  const result = await getPresignedPreviewUrl(db, encKey, userId, fileId);
-
-  if (!result.success) {
-    const statusCode = result.error === '文件不存在' ? 404 : 400;
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: result.error } }, statusCode);
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .get();
+  if (!file) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  }
+  if (file.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
   }
 
-  return c.json({ success: true, data: result.data });
+  if (!isPreviewableMimeType(file.mimeType)) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
+      400
+    );
+  }
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+  if (!bucketConfig) {
+    return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/preview` } });
+  }
+
+  // Shorter TTL for previews — 2 hours
+  const previewUrl = await s3PresignUrl(bucketConfig, 'GET', file.r2Key, 7200);
+
+  return c.json({
+    success: true,
+    data: {
+      previewUrl,
+      mimeType: file.mimeType,
+      size: file.size,
+      expiresIn: 7200,
+    },
+  });
 });
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Safe-encode a filename for use in S3 keys.
+ * Keeps the extension, replaces unsafe characters.
+ */
+function encodeFilename(name: string): string {
+  return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
+}
 
 export default app;

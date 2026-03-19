@@ -2,38 +2,30 @@
  * telegram.ts
  * Telegram 存储专用路由
  *
- * 功能:
- * - Telegram Bot 配置管理
- * - 文件上传/下载
- * - 消息发送
- * - Webhook 处理
+ * POST /api/telegram/test          — 测试 Bot 连通性（临时配置，不保存）
  */
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { tgTestConnection } from '../lib/telegramClient';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
-import { getEncryptionKey } from '../lib/crypto';
-import { getDb } from '../db';
-import {
-  testTelegramConnection,
-  listTelegramBuckets,
-} from '../services/telegram.service';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
 
-const testConnectionSchema = z.object({
-  botToken: z.string().min(10, 'Bot Token 不能为空'),
-  chatId: z.string().min(1, 'Chat ID 不能为空'),
-  apiBase: z.string().url('代理地址必须是有效的 URL').optional().or(z.literal('')),
-});
-
+// ── POST /api/telegram/test ───────────────────────────────────────────────
+// 传入临时配置验证 Bot Token + Chat ID，不保存到数据库
 app.post('/test', async (c) => {
   const body = await c.req.json();
-  const result = testConnectionSchema.safeParse(body);
+  const schema = z.object({
+    botToken: z.string().min(10, 'Bot Token 不能为空'),
+    chatId: z.string().min(1, 'Chat ID 不能为空'),
+    apiBase: z.string().url('代理地址必须是有效的 URL').optional().or(z.literal('')),
+  });
 
+  const result = schema.safeParse(body);
   if (!result.success) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
@@ -41,11 +33,7 @@ app.post('/test', async (c) => {
     );
   }
 
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-  const userId = c.get('userId')!;
-
-  const tgResult = await testTelegramConnection(db, encKey, userId, {
+  const tgResult = await tgTestConnection({
     botToken: result.data.botToken,
     chatId: result.data.chatId,
     apiBase: result.data.apiBase || undefined,
@@ -60,14 +48,6 @@ app.post('/test', async (c) => {
       chatTitle: tgResult.chatTitle,
     },
   });
-});
-
-app.get('/buckets', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const buckets = await listTelegramBuckets(db, userId);
-  return c.json({ success: true, data: buckets });
 });
 
 export default app;
