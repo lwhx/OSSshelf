@@ -1155,24 +1155,35 @@ export default function Files() {
                       const files = Array.from(e.target.files || []);
                       if (files.length === 0) return;
 
-                      const folderPaths = new Set<string>();
+                      const rootFolderName = files[0]
+                        ? ((files[0] as any).webkitRelativePath as string).split('/')[0]
+                        : '';
+                      const totalFiles = files.length;
+                      const totalFolders = new Set<string>();
+
                       for (const file of files) {
                         const relativePath = (file as any).webkitRelativePath as string;
                         if (relativePath) {
                           const parts = relativePath.split('/');
                           for (let i = 1; i < parts.length; i++) {
-                            folderPaths.add(parts.slice(0, i).join('/'));
+                            totalFolders.add(parts.slice(0, i).join('/'));
                           }
                         }
                       }
 
-                      const sortedFolderPaths = [...folderPaths].sort((a, b) => {
-                        const da = a.split('/').length;
-                        const db = b.split('/').length;
-                        return da - db;
+                      const sortedFolderPaths = [...totalFolders].sort((a, b) => {
+                        return a.split('/').length - b.split('/').length;
+                      });
+
+                      toast({
+                        title: `开始上传文件夹 "${rootFolderName}"`,
+                        description: `${totalFolders.size} 个文件夹, ${totalFiles} 个文件`,
                       });
 
                       const folderIdMap = new Map<string, string>();
+                      let uploadedCount = 0;
+                      let failedCount = 0;
+
                       const createFoldersAndUpload = async () => {
                         for (const folderPath of sortedFolderPaths) {
                           const parts = folderPath.split('/');
@@ -1186,9 +1197,17 @@ export default function Files() {
                           try {
                             const res = await filesApi.createFolder(name, parentId);
                             const createdFolderId = res.data.data?.id;
-                            if (createdFolderId) folderIdMap.set(folderPath, createdFolderId);
+                            if (createdFolderId) {
+                              folderIdMap.set(folderPath, createdFolderId);
+                            }
                           } catch (err: any) {
-                            console.warn(`创建文件夹 ${folderPath} 失败:`, err?.response?.data?.error?.message);
+                            const errorMsg = err?.response?.data?.error?.message || err?.message || '未知错误';
+                            toast({
+                              title: `创建文件夹 "${name}" 失败`,
+                              description: errorMsg,
+                              variant: 'destructive',
+                            });
+                            return;
                           }
                         }
 
@@ -1209,21 +1228,22 @@ export default function Files() {
                               parentId,
                               onProgress: (progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
                             });
+                            uploadedCount++;
                             setUploadProgresses((p) => {
                               const n = { ...p };
                               delete n[key];
                               return n;
                             });
-                            toast({ title: '上传成功' });
                           } catch (err: any) {
+                            failedCount++;
                             setUploadProgresses((p) => {
                               const n = { ...p };
                               delete n[key];
                               return n;
                             });
                             toast({
-                              title: '上传失败',
-                              description: err?.response?.data?.error?.message,
+                              title: `上传 "${file.name}" 失败`,
+                              description: err?.response?.data?.error?.message || err?.message,
                               variant: 'destructive',
                             });
                           }
@@ -1231,6 +1251,19 @@ export default function Files() {
 
                         queryClient.invalidateQueries({ queryKey: ['files'] });
                         queryClient.invalidateQueries({ queryKey: ['stats'] });
+
+                        if (failedCount === 0) {
+                          toast({
+                            title: `文件夹 "${rootFolderName}" 上传完成`,
+                            description: `成功上传 ${uploadedCount} 个文件`,
+                          });
+                        } else {
+                          toast({
+                            title: `文件夹 "${rootFolderName}" 上传完成（部分失败）`,
+                            description: `成功 ${uploadedCount} 个，失败 ${failedCount} 个`,
+                            variant: 'destructive',
+                          });
+                        }
                       };
 
                       createFoldersAndUpload();
