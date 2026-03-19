@@ -576,14 +576,15 @@ app.get('/devices', authMiddleware, async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  // 清理过期设备（7天未活跃）
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  await db
-    .delete(userDevices)
-    .where(and(
-      eq(userDevices.userId, userId),
-      lt(userDevices.lastActive, sevenDaysAgo)
-    ));
+  // 修复说明：过期设备的自动清理已从此处移除，改由 cron 任务统一处理。
+  //
+  // 原逻辑在每次 GET /devices 时静默删除 7 天未活跃的设备记录，会引发以下竞态：
+  //   1. 用户打开设备列表页面，前端缓存了含旧设备的列表（含其 deviceId）
+  //   2. 后台自动清理将该设备从 D1 删除
+  //   3. 用户点击注销该旧设备 → DELETE /devices/:deviceId → 后端查不到 → 404
+  //
+  // 清理任务已移至 cron 路由（runAllCleanupTasks），按计划定期执行，
+  // 避免与前端持有的 deviceId 产生不一致。
 
   const devices = await db
     .select()
@@ -607,7 +608,15 @@ app.delete('/devices/:deviceId', authMiddleware, async (c) => {
     .get();
 
   if (!device) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '设备不存在' } }, 404);
+    // 修复说明：设备记录不存在时返回幂等成功，而非 404。
+    //
+    // 触发场景：
+    //   - cron 自动清理已将该设备删除，但前端仍显示旧列表中的条目
+    //   - 用户在多个标签页同时执行注销操作
+    //
+    // 对于"移除登录设备"这类操作，设备不存在与删除成功在语义上等价——
+    // 最终状态都是该设备不再存在，向用户报错无实际意义。
+    return c.json({ success: true, data: { message: '设备已移除' } });
   }
 
   await db.delete(userDevices).where(eq(userDevices.id, device.id));

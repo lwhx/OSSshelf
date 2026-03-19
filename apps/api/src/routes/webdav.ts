@@ -6,7 +6,7 @@
  * - WebDAV协议完整实现
  * - 支持Windows/macOS/Linux挂载
  * - 文件读写与目录管理
- * - 锁定与解锁
+ * - 锁定与解锁（LOCK/UNLOCK，兼容 Windows 资源管理器与 WinSCP）
  */
 
 import { Hono, Context } from 'hono';
@@ -21,11 +21,14 @@ import type { Env, Variables } from '../types/env';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
+// DAV 路由前缀，与 index.ts 中 app.route('/dav', ...) 保持一致
+const DAV_PREFIX = '/dav';
+
 app.options('/*', (c) => {
   return new Response(null, {
     status: 200,
     headers: {
-      Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, MOVE, COPY',
+      Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
       DAV: '1, 2',
       'MS-Author-Via': 'DAV',
       'Content-Length': '0',
@@ -95,6 +98,13 @@ app.all('/*', async (c) => {
       return handleMove(c, userId, path);
     case 'COPY':
       return handleCopy(c, userId, path);
+    case 'LOCK':
+      return handleLock(c, path);
+    case 'UNLOCK':
+      // UNLOCK：无状态实现，直接返回成功
+      return new Response(null, { status: 204 });
+    case 'PROPPATCH':
+      return handleProppatch(c, path);
     default:
       return new Response('Method Not Allowed', { status: 405 });
   }
@@ -113,13 +123,22 @@ function escapeXml(str: string): string {
 
 type FileRow = typeof files.$inferSelect;
 
-function buildPropfindXML(items: FileRow[], basePath: string, isRoot: boolean = false): string {
+/**
+ * 构建 PROPFIND 响应 XML。
+ *
+ * 关键修复：<href> 必须使用完整请求路径（含 /dav 前缀），
+ * 否则 Windows 资源管理器会因路径不匹配而报"找不到路径"。
+ */
+function buildPropfindXML(items: FileRow[], requestPath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
 
   if (isRoot) {
+    // 根节点 href：确保带 /dav 前缀且以 / 结尾
+    const rootHref = DAV_PREFIX + (requestPath === '/' || requestPath === '' ? '/' : requestPath);
+    const normalizedRootHref = rootHref.endsWith('/') ? rootHref : rootHref + '/';
     responses.push(`
   <response>
-    <href>${escapeXml(basePath)}</href>
+    <href>${escapeXml(normalizedRootHref)}</href>
     <propstat>
       <prop>
         <displayname></displayname>
@@ -133,9 +152,12 @@ function buildPropfindXML(items: FileRow[], basePath: string, isRoot: boolean = 
   }
 
   items.forEach((file) => {
-    let href = file.path;
-    if (!href.startsWith('/')) href = '/' + href;
-    if (file.isFolder && !href.endsWith('/')) href += '/';
+    // 修复：href 必须包含 /dav 前缀，与实际请求 URL 保持一致
+    let logicalPath = file.path;
+    if (!logicalPath.startsWith('/')) logicalPath = '/' + logicalPath;
+    if (file.isFolder && !logicalPath.endsWith('/')) logicalPath += '/';
+
+    const href = DAV_PREFIX + logicalPath;
 
     responses.push(`
   <response>
@@ -163,16 +185,15 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
   const isRoot = path === '/' || path === '';
 
   let parentCondition;
-  let parentFolder = null;
 
   if (isRoot) {
     parentCondition = isNull(files.parentId);
   } else {
-    parentFolder = await findFileByPath(db, userId, path);
+    const parentFolder = await findFileByPath(db, userId, path);
     if (parentFolder) {
       parentCondition = eq(files.parentId, parentFolder.id);
     } else {
-      return new Response(buildPropfindXML([], '/', false), {
+      return new Response(buildPropfindXML([], path, false), {
         status: 207,
         headers: { 'Content-Type': 'application/xml; charset=utf-8' },
       });
@@ -187,21 +208,21 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
 
   if (depth === '0') {
     if (isRoot) {
-      return new Response(buildPropfindXML([], '/', true), {
+      return new Response(buildPropfindXML([], path, true), {
         status: 207,
         headers: { 'Content-Type': 'application/xml; charset=utf-8' },
       });
     } else {
       const current = await findFileByPath(db, userId, path);
       if (current) items.unshift(current);
-      return new Response(buildPropfindXML(items, '/', false), {
+      return new Response(buildPropfindXML(items, path, false), {
         status: 207,
         headers: { 'Content-Type': 'application/xml; charset=utf-8' },
       });
     }
   }
 
-  return new Response(buildPropfindXML(items, '/', true), {
+  return new Response(buildPropfindXML(items, path, true), {
     status: 207,
     headers: { 'Content-Type': 'application/xml; charset=utf-8' },
   });
@@ -561,6 +582,69 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   }
 
   return new Response(null, { status: 201 });
+}
+
+/**
+ * LOCK 处理器
+ *
+ * 修复说明：
+ * Windows 资源管理器和 WinSCP 在执行任何写操作（PUT/MKCOL/MOVE/DELETE）前
+ * 都会先发送 LOCK 请求。原实现缺少此处理器，导致返回 405 Method Not Allowed，
+ * 进而使 WinSCP 进入无限重试/等待状态（表现为卡死）。
+ *
+ * 此实现为无状态 LOCK（不持久化 lock token），对于单用户场景完全够用。
+ * 若需要多用户并发写保护，需引入 KV 存储 token 并在 UNLOCK 时验证。
+ */
+function handleLock(c: AppContext, path: string) {
+  const token = `urn:uuid:${crypto.randomUUID()}`;
+  const lockRootHref = DAV_PREFIX + (path.startsWith('/') ? path : '/' + path);
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<prop xmlns="DAV:">
+  <lockdiscovery>
+    <activelock>
+      <locktype><write/></locktype>
+      <lockscope><exclusive/></lockscope>
+      <depth>0</depth>
+      <owner/>
+      <timeout>Second-3600</timeout>
+      <locktoken><href>${escapeXml(token)}</href></locktoken>
+      <lockroot><href>${escapeXml(lockRootHref)}</href></lockroot>
+    </activelock>
+  </lockdiscovery>
+</prop>`;
+
+  return new Response(xml, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Lock-Token': `<${token}>`,
+    },
+  });
+}
+
+/**
+ * PROPPATCH 处理器
+ *
+ * OSSshelf 属性均为只读，返回标准 403 响应使客户端不会因无响应而卡住。
+ */
+function handleProppatch(c: AppContext, path: string) {
+  const href = DAV_PREFIX + (path.startsWith('/') ? path : '/' + path);
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<multistatus xmlns="DAV:">
+  <response>
+    <href>${escapeXml(href)}</href>
+    <propstat>
+      <prop/>
+      <status>HTTP/1.1 403 Forbidden</status>
+    </propstat>
+  </response>
+</multistatus>`;
+
+  return new Response(xml, {
+    status: 207,
+    headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+  });
 }
 
 export default app;
