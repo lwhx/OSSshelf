@@ -36,6 +36,7 @@ class UploadManager {
   private listeners: Set<UploadJobListener> = new Set();
   private worker: Worker | null = null;
   private pendingTasks: Map<string, { file: File; parentId: string | null; bucketId: string | null }> = new Map();
+  private pendingResolvers: Map<string, { resolve: (id: string) => void; reject: (err: Error) => void }> = new Map();
 
   constructor() {
     this.initWorker();
@@ -78,6 +79,11 @@ class UploadManager {
               job.taskId = payload.fileId;
               this.notify();
             }
+            const resolver = this.pendingResolvers.get(payload.taskId);
+            if (resolver) {
+              resolver.resolve(payload.fileId);
+              this.pendingResolvers.delete(payload.taskId);
+            }
             break;
           }
 
@@ -87,6 +93,11 @@ class UploadManager {
               job.status = 'failed';
               job.error = payload.error;
               this.notify();
+            }
+            const resolver = this.pendingResolvers.get(payload.taskId);
+            if (resolver) {
+              resolver.reject(new Error(payload.error));
+              this.pendingResolvers.delete(payload.taskId);
             }
             break;
           }
@@ -127,7 +138,6 @@ class UploadManager {
 
   private async startUploadInWorker(taskId: string, file: File, parentId: string | null, bucketId: string | null) {
     if (!this.worker) {
-      // 降级到主线程
       const { presignUpload } = await import('./presignUpload');
       const job = this.jobs.get(taskId);
       if (!job) return;
@@ -147,15 +157,24 @@ class UploadManager {
         job.progress = 100;
         job.taskId = result.id;
         this.notify();
+        const resolver = this.pendingResolvers.get(taskId);
+        if (resolver) {
+          resolver.resolve(result.id);
+          this.pendingResolvers.delete(taskId);
+        }
       } catch (error: any) {
         job.status = 'failed';
         job.error = error.message || '上传失败';
         this.notify();
+        const resolver = this.pendingResolvers.get(taskId);
+        if (resolver) {
+          resolver.reject(error);
+          this.pendingResolvers.delete(taskId);
+        }
       }
       return;
     }
 
-    // 读取文件到 ArrayBuffer
     const fileBuffer = await file.arrayBuffer();
 
     this.worker.postMessage({
@@ -225,6 +244,10 @@ class UploadManager {
     this.jobs.set(taskId, job);
     this.notify();
 
+    const uploadPromise = new Promise<string>((resolve, reject) => {
+      this.pendingResolvers.set(taskId, { resolve, reject });
+    });
+
     if (onProgress) {
       let lastProgress = 0;
       const unsubscribe = this.subscribe((jobs) => {
@@ -241,14 +264,14 @@ class UploadManager {
 
     if (!this.worker) {
       this.pendingTasks.set(taskId, { file, parentId, bucketId });
-      return taskId;
+      return uploadPromise;
     }
 
     job.status = 'uploading';
     this.notify();
 
-    await this.startUploadInWorker(taskId, file, parentId, bucketId);
-    return taskId;
+    this.startUploadInWorker(taskId, file, parentId, bucketId);
+    return uploadPromise;
   }
 
   pauseUpload(jobId: string): boolean {

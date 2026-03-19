@@ -232,7 +232,7 @@ export default function Files() {
   }
 
   const handleUpload = useCallback(
-    (file: File, key: string) => {
+    async (file: File, key: string) => {
       const bucket = getEffectiveBucket();
       const limitErr = checkTelegramLimit(file, bucket);
       if (limitErr) {
@@ -240,30 +240,33 @@ export default function Files() {
         return;
       }
       setUploadProgresses((p) => ({ ...p, [key]: 0 }));
-      uploadManager
-        .startUpload(file, folderId || null, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p })))
-        .then(() => {
-          setUploadProgresses((p) => {
-            const n = { ...p };
-            delete n[key];
-            return n;
-          });
-          queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-          queryClient.invalidateQueries({ queryKey: ['stats'] });
-          toast({ title: '上传成功' });
-        })
-        .catch((e: any) => {
-          setUploadProgresses((p) => {
-            const n = { ...p };
-            delete n[key];
-            return n;
-          });
-          toast({
-            title: '上传失败',
-            description: e?.message || e?.response?.data?.error?.message,
-            variant: 'destructive',
-          });
+      try {
+        await presignUpload({
+          file,
+          parentId: folderId || null,
+          bucketId: bucket?.id ?? null,
+          onProgress: (progress) => setUploadProgresses((prev) => ({ ...prev, [key]: progress })),
         });
+        setUploadProgresses((p) => {
+          const n = { ...p };
+          delete n[key];
+          return n;
+        });
+        queryClient.invalidateQueries({ queryKey: ['files', folderId] });
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+        toast({ title: '上传成功' });
+      } catch (e: any) {
+        setUploadProgresses((p) => {
+          const n = { ...p };
+          delete n[key];
+          return n;
+        });
+        toast({
+          title: '上传失败',
+          description: e?.message || e?.response?.data?.error?.message,
+          variant: 'destructive',
+        });
+      }
     },
     [folderId, queryClient, toast, setUploadProgresses, checkTelegramLimit]
   );
@@ -701,7 +704,7 @@ export default function Files() {
               multiple
               onChange={(e) => {
                 Array.from(e.target.files || []).forEach((file) => {
-                  const key = `${file.name}-${Date.now()}`;
+                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
                   handleUpload(file, key);
                 });
                 e.target.value = '';

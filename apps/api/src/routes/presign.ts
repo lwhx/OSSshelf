@@ -300,9 +300,6 @@ app.post('/multipart/init', async (c) => {
   if (bucketConfig.provider === 'telegram') {
     return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
   }
-  if (quotaErr) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
-  }
 
   const fileId = crypto.randomUUID();
   const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
