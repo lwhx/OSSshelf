@@ -711,7 +711,11 @@ export async function getPresignedDownloadUrl(fileId: string): Promise<PresignDo
 
   // Fall back gracefully
   if (!data || data.useProxy) {
-    return { useProxy: true, url: `${API_BASE}/api/files/${fileId}/download` };
+    const token = useAuthStore.getState().token;
+    const proxyUrl = token
+      ? `${API_BASE}/api/files/${fileId}/download?token=${encodeURIComponent(token)}`
+      : `${API_BASE}/api/files/${fileId}/download`;
+    return { useProxy: true, url: proxyUrl };
   }
 
   return {

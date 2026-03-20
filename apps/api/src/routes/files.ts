@@ -164,6 +164,99 @@ app.get('/:id/preview', async (c) => {
   return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
 });
 
+// ── Download (before authMiddleware, supports token query param) ───────────
+app.get('/:id/download', async (c) => {
+  let userId: string | undefined;
+  const authHeader = c.req.header('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    try {
+      const { verifyJWT } = await import('../lib/crypto');
+      const payload = await verifyJWT(token, c.env.JWT_SECRET);
+      if (payload?.userId) userId = payload.userId;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!userId) {
+    const queryToken = c.req.query('token');
+    if (queryToken) {
+      try {
+        const { verifyJWT } = await import('../lib/crypto');
+        const payload = await verifyJWT(queryToken, c.env.JWT_SECRET);
+        if (payload?.userId) userId = payload.userId;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (!userId) return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未授权' } }, 401);
+
+  const fileId = c.req.param('id');
+  const db = getDb(c.env.DB);
+  const encKey = getEncryptionKey(c.env);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
+  if (!hasAccess) {
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权下载此文件' } }, 403);
+  }
+
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
+    .get();
+  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (file.isFolder)
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
+  const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+  const dlHeaders = {
+    'Content-Type': file.mimeType || 'application/octet-stream',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    'Content-Length': file.size.toString(),
+  };
+
+  // ── Telegram 桶下载路径 ───────────────────────────────────────────────
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
+      if (!ref) {
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用，文件可能已损坏' } },
+          404
+        );
+      }
+      const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
+      if (!tgConfig) {
+        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+      }
+      try {
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        return new Response(body, { headers: dlHeaders });
+      } catch (e: any) {
+        return c.json(
+          { success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } },
+          502
+        );
+      }
+    }
+  }
+
+  if (bucketConfig) {
+    const s3Res = await s3Get(bucketConfig, file.r2Key);
+    return new Response(s3Res.body, { headers: dlHeaders });
+  }
+  if (c.env.FILES) {
+    const obj = await c.env.FILES.get(file.r2Key);
+    if (!obj) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    return new Response(obj.body, { headers: dlHeaders });
+  }
+  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+});
+
 app.use('*', authMiddleware);
 
 // ── Upload ─────────────────────────────────────────────────────────────────
@@ -870,75 +963,6 @@ async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, 
     await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, child.id));
   }
 }
-
-// ── Download ───────────────────────────────────────────────────────────────
-app.get('/:id/download', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('id');
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  // 使用权限检查函数，需要 read 权限
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
-  if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权下载此文件' } }, 403);
-  }
-
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
-    .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  if (file.isFolder)
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
-  const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-  const dlHeaders = {
-    'Content-Type': file.mimeType || 'application/octet-stream',
-    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-    'Content-Length': file.size.toString(),
-  };
-
-  // ── Telegram 桶下载路径 ───────────────────────────────────────────────
-  if (file.bucketId) {
-    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
-    if (bkt?.provider === 'telegram') {
-      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
-      if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用，文件可能已损坏' } },
-          404
-        );
-      }
-      const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
-      if (!tgConfig) {
-        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
-      }
-      try {
-        const body = isChunkedFileId(ref.tgFileId)
-          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
-          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
-        return new Response(body, { headers: dlHeaders });
-      } catch (e: any) {
-        return c.json(
-          { success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } },
-          502
-        );
-      }
-    }
-  }
-
-  if (bucketConfig) {
-    const s3Res = await s3Get(bucketConfig, file.r2Key);
-    return new Response(s3Res.body, { headers: dlHeaders });
-  }
-  if (c.env.FILES) {
-    const obj = await c.env.FILES.get(file.r2Key);
-    if (!obj) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-    return new Response(obj.body, { headers: dlHeaders });
-  }
-  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
-});
 
 // ── Shared helper ──────────────────────────────────────────────────────────
 /**

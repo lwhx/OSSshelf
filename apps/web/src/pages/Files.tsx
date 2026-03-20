@@ -351,21 +351,22 @@ export default function Files() {
         a.remove();
       } catch {
         try {
-          const res = await filesApi.download(file.id);
-          const url = window.URL.createObjectURL(res.data as Blob);
+          const downloadToken = token || useAuthStore.getState().token;
+          const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
           const a = document.createElement('a');
-          a.href = url;
+          a.href = downloadUrl;
           a.download = file.name;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
           document.body.appendChild(a);
           a.click();
-          window.URL.revokeObjectURL(url);
           a.remove();
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }
       }
     },
-    [toast]
+    [toast, token]
   );
 
   const handleFileClick = useCallback(

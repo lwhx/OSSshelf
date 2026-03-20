@@ -134,7 +134,10 @@ export const filesApi = {
     const baseUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${id}/preview`;
     return token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl;
   },
-  downloadUrl: (id: string) => `${import.meta.env.VITE_API_URL || ''}/api/files/${id}/download`,
+  downloadUrl: (id: string, token?: string) => {
+    const baseUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${id}/download`;
+    return token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl;
+  },
 
   listTrash: () => api.get<ApiResponse<FileItem[]>>('/api/files/trash'),
   restoreTrash: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/files/trash/${id}/restore`),
