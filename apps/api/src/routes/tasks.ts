@@ -482,9 +482,15 @@ app.post('/part-done', async (c) => {
   const alreadyRecorded = uploadedParts.some((p) => p.partNumber === partNumber);
   if (!alreadyRecorded) {
     uploadedParts.push({ partNumber, etag });
+    const progress = task.totalParts > 0 ? Math.round((uploadedParts.length / task.totalParts) * 100) : 0;
     await db
       .update(uploadTasks)
-      .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
+      .set({
+        uploadedParts: JSON.stringify(uploadedParts),
+        status: 'uploading',
+        progress,
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(uploadTasks.id, taskId));
   }
 
@@ -540,9 +546,15 @@ app.post('/part-proxy', async (c) => {
   const alreadyRecorded = uploadedParts.some((p) => p.partNumber === partNumber);
   if (!alreadyRecorded) {
     uploadedParts.push({ partNumber, etag });
+    const progress = task.totalParts > 0 ? Math.round((uploadedParts.length / task.totalParts) * 100) : 0;
     await db
       .update(uploadTasks)
-      .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', updatedAt: new Date().toISOString() })
+      .set({
+        uploadedParts: JSON.stringify(uploadedParts),
+        status: 'uploading',
+        progress,
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(uploadTasks.id, taskId));
   }
 
