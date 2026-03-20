@@ -142,7 +142,7 @@ app.post('/create', async (c) => {
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + UPLOAD_TASK_EXPIRY).toISOString();
 
-    // 按 TG_CHUNK_SIZE (10MB) 计算分片数，与 S3 分片大小一致，前端逐片上传
+    // 按 TG_CHUNK_SIZE (30MB) 计算分片数，前端逐片上传
     const totalParts = Math.ceil(fileSize / TG_CHUNK_SIZE);
     const uploadId = `telegram-chunked:${groupId}`;
 
@@ -959,6 +959,46 @@ app.post('/complete', async (c) => {
     // Telegram 新版分片任务：写入 files + telegramFileRefs
     if (isTelegramChunked) {
       const groupId = task.uploadId!.slice('telegram-chunked:'.length);
+
+      // ── 校验所有分片是否都已上传 ──────────────────────────────────────
+      const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
+        try { return JSON.parse(task.uploadedParts || '[]'); } catch { return []; }
+      })();
+
+      if (uploadedParts.length !== task.totalParts) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: ERROR_CODES.VALIDATION_ERROR,
+              message: `分片未全部完成：已上传 ${uploadedParts.length}/${task.totalParts} 片`,
+            },
+          },
+          400
+        );
+      }
+
+      // 从 DB 二次确认分片记录完整性
+      const chunkRows = await db
+        .select()
+        .from(telegramFileChunks)
+        .where(eq(telegramFileChunks.groupId, groupId))
+        .all();
+
+      if (chunkRows.length !== task.totalParts) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: ERROR_CODES.VALIDATION_ERROR,
+              message: `Telegram 分片记录不完整：数据库中找到 ${chunkRows.length}/${task.totalParts} 片，请重试`,
+            },
+          },
+          400
+        );
+      }
+      // ──────────────────────────────────────────────────────────────────
+
       const virtualFileId = `chunked:${groupId}`;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
       const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;

@@ -12,8 +12,8 @@ import { telegramFileRefs, telegramFileChunks } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { tgUploadFile, tgGetFileInfo, tgGetDownloadUrl, type TelegramBotConfig } from './telegramClient';
 
-/** 单分片最大字节数（10 MB），与 S3 UPLOAD_CHUNK_SIZE 一致 */
-export const TG_CHUNK_SIZE = 10 * 1024 * 1024;
+/** 单分片最大字节数（30 MB） */
+export const TG_CHUNK_SIZE = 30 * 1024 * 1024;
 
 export function needsChunking(fileSize: number): boolean {
   return fileSize > TG_CHUNK_SIZE;
