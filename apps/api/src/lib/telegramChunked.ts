@@ -17,7 +17,7 @@
  *   - telegramFileRefs 对分片文件记录 chunkGroupId（虚拟 tgFileId 前缀 "chunked:"）。
  *
  * 分片大小：
- *   TG_CHUNK_SIZE = 20MB（Workers 内存安全上限，峰值约 50MB）
+ *   TG_CHUNK_SIZE = 10MB（与 S3 UPLOAD_CHUNK_SIZE 一致，Workers formData() 解析已验证可靠）
  */
 
 import { eq } from 'drizzle-orm';
@@ -25,12 +25,12 @@ import { telegramFileRefs } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { tgUploadFile, tgGetFileInfo, tgGetDownloadUrl, type TelegramBotConfig } from './telegramClient';
 
-/** 单分片最大字节数（20 MB）
- *  Workers 内存上限 128MB，tgUploadFile 峰值占用约 2× chunk：
- *  ArrayBuffer(20MB) + File/Uint8Array(20MB) + 运行时 ≈ 50MB，安全。
- *  49MB 时峰值 ~100MB+ 会触发 OOM。
+/** 单分片最大字节数（10 MB）
+ *  与 S3 UPLOAD_CHUNK_SIZE 保持一致——Workers 上 formData() 解析 10MB multipart
+ *  已验证可靠，20MB 会超时导致 500。
+ *  峰值内存：10MB × 2（buffer + File） + 运行时 ≈ 30MB，远低于 128MB 上限。
  */
-export const TG_CHUNK_SIZE = 20 * 1024 * 1024;
+export const TG_CHUNK_SIZE = 10 * 1024 * 1024;
 
 /**
  * 大文件是否需要分片（> TG_CHUNK_SIZE）

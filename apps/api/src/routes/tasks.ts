@@ -149,7 +149,7 @@ app.post('/create', async (c) => {
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + UPLOAD_TASK_EXPIRY).toISOString();
 
-    // 按 TG_CHUNK_SIZE (20MB) 计算分片数，前端逐片上传
+    // 按 TG_CHUNK_SIZE (10MB) 计算分片数，与 S3 分片大小一致，前端逐片上传
     const totalParts = Math.ceil(fileSize / TG_CHUNK_SIZE);
     const uploadId = `telegram-chunked:${groupId}`;
 
@@ -565,10 +565,8 @@ app.post('/part-proxy', async (c) => {
 });
 
 // ── POST /api/tasks/telegram-part ────────────────────────────────────────
-// 接收单个分片（≤20MB），转发到 Telegram Bot API（含代理）。
-// 完全照抄 /part-proxy 的 multipart/form-data 模式——这是 Workers+Hono 上
-// 唯一可靠的大 body 读取方式（c.req.arrayBuffer() 在 authMiddleware 消费
-// body stream 后会拿到空，导致 500）。
+// 接收单个分片（≤10MB，与 S3 /part-proxy 一致），转发到 Telegram Bot API（含代理）。
+// multipart/form-data 格式与 /part-proxy 完全相同，Workers 上已验证可靠。
 // 字段: taskId, partNumber, chunk (File)
 app.post('/telegram-part', async (c) => {
   const userId = c.get('userId')!;
