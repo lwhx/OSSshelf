@@ -267,6 +267,8 @@ export const uploadTasks = sqliteTable(
     totalParts: integer('total_parts').notNull(),
     uploadedParts: text('uploaded_parts').default('[]'),
     status: text('status').default('pending'),
+    progress: integer('progress').default(0),
+    errorMessage: text('error_message'),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
     updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
     expiresAt: text('expires_at').notNull(),

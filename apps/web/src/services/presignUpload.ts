@@ -601,6 +601,27 @@ interface TelegramProxyUploadOptions {
   signal?: AbortSignal;
 }
 
+interface TelegramTaskStatus {
+  id: string;
+  status: 'pending' | 'uploading' | 'completed' | 'failed' | 'expired' | 'aborted';
+  progress: number;
+  errorMessage?: string;
+  fileName: string;
+  fileSize: number;
+  mimeType?: string | null;
+  bucketId?: string;
+}
+
+interface TelegramUploadResponse {
+  success: boolean;
+  data: { taskId: string; status: string; message: string };
+  error?: { message: string };
+}
+
+const TG_POLL_INTERVAL = 1000;
+const TG_UPLOAD_PHASE_RATIO = 0.1;
+const MAX_POLL_ATTEMPTS = 3600;
+
 async function telegramProxyUpload({
   file,
   taskId,
@@ -613,24 +634,78 @@ async function telegramProxyUpload({
   formData.append('taskId', taskId);
   formData.append('file', file);
 
-  const res = await axios.post<{ success: boolean; data: UploadedFile; error?: { message: string } }>(
-    `${API_BASE}/api/tasks/telegram-upload`,
-    formData,
-    {
-      headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
-      signal,
-      onUploadProgress: (e) => {
-        if (e.total && onProgress) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      },
-    }
-  );
+  const uploadRes = await axios.post<TelegramUploadResponse>(`${API_BASE}/api/tasks/telegram-upload`, formData, {
+    headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+    signal,
+    onUploadProgress: (e) => {
+      if (e.total && onProgress) {
+        const frontendProgress = Math.round((e.loaded / e.total) * 100 * TG_UPLOAD_PHASE_RATIO);
+        onProgress(frontendProgress);
+      }
+    },
+  });
 
-  if (!res.data.success) {
-    throw new Error(res.data.error?.message || 'Telegram 上传失败');
+  if (!uploadRes.data.success) {
+    throw new Error(uploadRes.data.error?.message || 'Telegram 上传启动失败');
   }
-  return res.data.data;
+
+  return pollTelegramUploadProgress({ taskId, onProgress, signal });
+}
+
+async function pollTelegramUploadProgress({
+  taskId,
+  onProgress,
+  signal,
+}: {
+  taskId: string;
+  onProgress?: (percent: number) => void;
+  signal?: AbortSignal;
+}): Promise<UploadedFile> {
+  let lastProgress = Math.round(TG_UPLOAD_PHASE_RATIO * 100);
+  let attempts = 0;
+
+  while (attempts < MAX_POLL_ATTEMPTS) {
+    attempts++;
+    if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
+
+    const statusRes = await apiGet<TelegramTaskStatus>(`/api/tasks/${taskId}`);
+    const { status, progress, errorMessage } = statusRes;
+
+    const displayProgress = Math.round(TG_UPLOAD_PHASE_RATIO * 100 + progress * (1 - TG_UPLOAD_PHASE_RATIO));
+    if (displayProgress !== lastProgress && onProgress) {
+      onProgress(displayProgress);
+      lastProgress = displayProgress;
+    }
+
+    if (status === 'completed') {
+      onProgress?.(100);
+      return {
+        id: taskId,
+        name: statusRes.fileName,
+        size: statusRes.fileSize,
+        mimeType: statusRes.mimeType || 'application/octet-stream',
+        path: '',
+        bucketId: statusRes.bucketId || '',
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    if (status === 'failed') {
+      throw new Error(errorMessage || 'Telegram 上传失败');
+    }
+
+    if (status === 'expired' || status === 'aborted') {
+      throw new Error(`上传任务${status === 'expired' ? '已过期' : '已取消'}`);
+    }
+
+    await sleep(TG_POLL_INTERVAL);
+  }
+
+  throw new Error('上传超时，请稍后重试');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ── Presigned download/preview URL helpers ─────────────────────────────────

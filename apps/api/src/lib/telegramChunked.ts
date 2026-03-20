@@ -45,6 +45,15 @@ export interface TgChunkUploadResult {
   totalBytes: number;
 }
 
+export interface TgUploadProgress {
+  /** 当前已上传分片数 */
+  uploadedChunks: number;
+  /** 总分片数 */
+  totalChunks: number;
+  /** 进度百分比 (0-100) */
+  percent: number;
+}
+
 /** DB 分片记录结构（对应 telegram_file_chunks 表） */
 export interface TgChunkRecord {
   id: string;
@@ -100,6 +109,7 @@ async function deleteChunks(db: DrizzleDb, groupId: string): Promise<void> {
  * @param mimeType 文件 MIME 类型
  * @param db      数据库实例
  * @param bucketId 所属存储桶 ID
+ * @param onProgress 进度回调（可选）
  */
 export async function tgUploadChunked(
   config: TelegramBotConfig,
@@ -107,7 +117,8 @@ export async function tgUploadChunked(
   fileName: string,
   mimeType: string | null | undefined,
   db: DrizzleDb,
-  bucketId: string
+  bucketId: string,
+  onProgress?: (progress: TgUploadProgress) => void
 ): Promise<TgChunkUploadResult> {
   const data = new Uint8Array(buffer);
   const totalSize = data.byteLength;
@@ -115,13 +126,13 @@ export async function tgUploadChunked(
   const groupId = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  // 逐块上传
+  onProgress?.({ uploadedChunks: 0, totalChunks: chunkCount, percent: 0 });
+
   for (let i = 0; i < chunkCount; i++) {
     const start = i * TG_CHUNK_SIZE;
     const end = Math.min(start + TG_CHUNK_SIZE, totalSize);
     const chunk = data.slice(start, end).buffer;
 
-    // 分片文件名格式：originalName.part001（方便识别）
     const chunkFileName = `${fileName}.part${String(i + 1).padStart(3, '0')}`;
     const caption = `📦 ${fileName} [${i + 1}/${chunkCount}]\n🗂 OSSshelf chunk | group:${groupId.slice(0, 8)}`;
 
@@ -136,6 +147,10 @@ export async function tgUploadChunked(
       bucketId,
       createdAt: now,
     });
+
+    const uploadedChunks = i + 1;
+    const percent = Math.round((uploadedChunks / chunkCount) * 100);
+    onProgress?.({ uploadedChunks, totalChunks: chunkCount, percent });
   }
 
   return {

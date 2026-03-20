@@ -430,8 +430,10 @@ function TaskItem({
   onResumeUpload?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
+  const isTelegramTask = task.uploadId === 'telegram';
   const isSmallFileUploading = task.status === 'uploading' && task.totalParts === 1 && task.uploadedParts.length === 0;
-  const progress = task.totalParts > 0 ? Math.round((task.uploadedParts.length / task.totalParts) * 100) : 0;
+  const s3Progress = task.totalParts > 0 ? Math.round((task.uploadedParts.length / task.totalParts) * 100) : 0;
+  const progress = isTelegramTask ? (task.progress ?? 0) : s3Progress;
   const StatusIcon = status.icon;
 
   return (

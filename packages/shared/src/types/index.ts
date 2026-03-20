@@ -167,6 +167,7 @@ export interface UploadTask {
   totalParts: number;
   uploadedParts: number[];
   status: UploadTaskStatus;
+  progress: number;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
