@@ -39,7 +39,6 @@ import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import {
   tgUploadFile,
-  tgUploadStream,
   TG_MAX_FILE_SIZE,
   TG_MAX_CHUNKED_FILE_SIZE,
   type TelegramBotConfig,
@@ -565,29 +564,18 @@ app.post('/part-proxy', async (c) => {
   return c.json({ success: true, data: { partNumber, etag } });
 });
 
-// ── POST /api/tasks/telegram-part ────────────────────────────────────────
-// 接收单个分片，流式转发到 Telegram Bot API（零内存缓冲）。
-// metadata（taskId / partNumber / chunkSize）通过 URL query 参数传递，
-// 请求体为裸二进制（application/octet-stream），直接 pipe 给 tgUploadStream。
-app.post('/telegram-part', async (c) => {
+// ── POST /api/tasks/telegram-part-init ──────────────────────────────────
+// 鉴权后返回 botToken / chatId / apiBase，前端直接上传到 Telegram Bot API。
+// Worker 不接触文件内容，彻底规避内存限制。
+app.post('/telegram-part-init', async (c) => {
   const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const taskId = body.taskId as string;
+  const partNumber = body.partNumber as number;
 
-  const taskId = c.req.query('taskId');
-  const partNumberStr = c.req.query('partNumber');
-  const chunkSizeStr = c.req.query('chunkSize');
-
-  if (!taskId || !partNumberStr || !chunkSizeStr) {
+  if (!taskId || !partNumber) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId、partNumber 或 chunkSize 查询参数' } },
-      400
-    );
-  }
-
-  const partNumber = parseInt(partNumberStr, 10);
-  const chunkSize = parseInt(chunkSizeStr, 10);
-  if (isNaN(partNumber) || partNumber < 1 || isNaN(chunkSize) || chunkSize < 1) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 或 chunkSize 无效' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId 或 partNumber' } },
       400
     );
   }
@@ -614,8 +602,6 @@ app.post('/telegram-part', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
   }
 
-  const groupId = task.uploadId.slice('telegram-chunked:'.length);
-
   const bucket = await db
     .select()
     .from(storageBuckets)
@@ -627,32 +613,63 @@ app.post('/telegram-part', async (c) => {
   }
 
   const botToken = await decryptSecret(bucket.accessKeyId, encKey);
-  const tgConfig: TelegramBotConfig = {
-    botToken,
-    chatId: bucket.bucketName,
-    apiBase: bucket.endpoint || undefined,
+  const apiBase = bucket.endpoint || 'https://api.telegram.org';
+  const groupId = task.uploadId.slice('telegram-chunked:'.length);
+
+  return c.json({
+    success: true,
+    data: {
+      botToken,
+      chatId: bucket.bucketName,
+      apiBase,
+      groupId,
+      fileName: task.fileName,
+      mimeType: task.mimeType,
+      totalParts: task.totalParts,
+    },
+  });
+});
+
+// ── POST /api/tasks/telegram-part-done ──────────────────────────────────
+// 前端直接上传完一片后，把 tgFileId 和 chunkSize 报告给 Worker 写 DB。
+app.post('/telegram-part-done', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const { taskId, partNumber, tgFileId, chunkSize } = body as {
+    taskId: string;
+    partNumber: number;
+    tgFileId: string;
+    chunkSize: number;
   };
 
-  const bodyStream = c.req.raw.body;
-  if (!bodyStream) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请求体为空' } }, 400);
-  }
-
-  const chunkFileName = `${task.fileName}.part${String(partNumber).padStart(3, '0')}`;
-  const caption = `📦 ${task.fileName} [${partNumber}/${task.totalParts}]\n🗂 OSSshelf chunk | group:${groupId.slice(0, 8)}`;
-
-  let tgFileId: string;
-  try {
-    const result = await tgUploadStream(tgConfig, bodyStream, chunkFileName, chunkSize, task.mimeType, caption);
-    tgFileId = result.fileId;
-  } catch (e: any) {
+  if (!taskId || !partNumber || !tgFileId || !chunkSize) {
     return c.json(
-      { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传分片失败' } },
-      500
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少必要参数' } },
+      400
     );
   }
 
+  const db = getDb(c.env.DB);
+
+  const task = await db
+    .select()
+    .from(uploadTasks)
+    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
+    .get();
+
+  if (!task) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+  }
+  if (!task.uploadId?.startsWith('telegram-chunked:')) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 分片上传任务' } },
+      400
+    );
+  }
+
+  const groupId = task.uploadId.slice('telegram-chunked:'.length);
   const now = new Date().toISOString();
+
   await (db as any).run(
     `INSERT OR REPLACE INTO telegram_file_chunks
        (id, group_id, chunk_index, tg_file_id, chunk_size, bucket_id, created_at)
@@ -672,6 +689,7 @@ app.post('/telegram-part', async (c) => {
 
   return c.json({ success: true, data: { partNumber, tgFileId } });
 });
+
 
 // ── POST /api/tasks/telegram-upload (legacy, kept for backward compat) ───
 // 旧版单次整包上传入口，已被 /telegram-part 分片方案取代。

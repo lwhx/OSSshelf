@@ -618,6 +618,16 @@ interface TelegramProxyUploadOptions {
   signal?: AbortSignal;
 }
 
+interface TelegramPartInitResponse {
+  botToken: string;
+  chatId: string;
+  apiBase: string;
+  groupId: string;
+  fileName: string;
+  mimeType: string | null;
+  totalParts: number;
+}
+
 async function telegramProxyUpload({
   file,
   taskId,
@@ -633,35 +643,67 @@ async function telegramProxyUpload({
   for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
     if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
+    // ① 向 Worker 鉴权，拿到 Telegram 凭证（纯 JSON，无文件内容）
+    const initRes = await apiPost<TelegramPartInitResponse>('/api/tasks/telegram-part-init', {
+      taskId,
+      partNumber,
+    });
+
     const start = (partNumber - 1) * partSize;
     const end = Math.min(start + partSize, file.size);
     const chunk = file.slice(start, end);
     const actualChunkSize = end - start;
 
-    const url = `${API_BASE}/api/tasks/telegram-part?taskId=${encodeURIComponent(taskId)}&partNumber=${partNumber}&chunkSize=${actualChunkSize}`;
+    const apiBase = (initRes.apiBase || 'https://api.telegram.org').replace(/\/$/, '');
+    const tgUrl = `${apiBase}/bot${initRes.botToken}/sendDocument`;
 
-    const res = await axios.post<{ success: boolean; error?: { message: string } }>(
-      url,
-      chunk, // 裸二进制，无 multipart 开销
-      {
-        headers: { ...authHeaders(), 'Content-Type': 'application/octet-stream' },
-        signal,
-        onUploadProgress: (e) => {
-          if (e.total && onProgress) {
-            const partProgress = e.loaded / e.total;
-            const overall = Math.round(((partNumber - 1 + partProgress) / totalParts) * 100);
-            onProgress(Math.min(overall, 99));
-          }
-        },
-      }
-    );
+    const chunkFileName = `${file.name}.part${String(partNumber).padStart(3, '0')}`;
+    const caption = `📦 ${file.name} [${partNumber}/${totalParts}]\n🗂 OSSshelf chunk | group:${initRes.groupId.slice(0, 8)}`;
 
-    if (!res.data.success) {
-      throw new Error(res.data.error?.message || `分片 ${partNumber} 上传失败`);
+    // ② 浏览器直接上传到 Telegram Bot API（Worker 不参与，无内存限制）
+    const formData = new FormData();
+    formData.append('chat_id', initRes.chatId);
+    formData.append('document', chunk, chunkFileName);
+    formData.append('caption', caption.slice(0, 1024));
+    formData.append('disable_notification', 'true');
+
+    const tgRes = await axios.post<any>(tgUrl, formData, {
+      signal,
+      onUploadProgress: (e) => {
+        if (e.total && onProgress) {
+          const partProgress = e.loaded / e.total;
+          const overall = Math.round(((partNumber - 1 + partProgress) / totalParts) * 100);
+          onProgress(Math.min(overall, 99));
+        }
+      },
+    });
+
+    if (!tgRes.data.ok) {
+      throw new Error(`Telegram API 错误: ${tgRes.data.description || '未知错误'}`);
     }
+
+    // 解析 tgFileId
+    const msg = tgRes.data.result;
+    const tgFileId: string =
+      msg.document?.file_id ||
+      msg.audio?.file_id ||
+      msg.video?.file_id ||
+      msg.photo?.[msg.photo.length - 1]?.file_id;
+
+    if (!tgFileId) {
+      throw new Error(`分片 ${partNumber} 上传后未获取到 file_id`);
+    }
+
+    // ③ 通知 Worker 写 DB（纯 JSON，无文件内容）
+    await apiPost('/api/tasks/telegram-part-done', {
+      taskId,
+      partNumber,
+      tgFileId,
+      chunkSize: actualChunkSize,
+    });
   }
 
-  // 全部分片完成，通知服务端写入 DB
+  // 全部分片完成，调 /complete 写入 files + telegramFileRefs
   const completeRes = await apiPost<{
     id: string;
     name: string;
@@ -672,7 +714,7 @@ async function telegramProxyUpload({
     createdAt: string;
   }>('/api/tasks/complete', {
     taskId,
-    parts: [], // telegram-chunked 分支不依赖 parts 参数
+    parts: [],
   });
 
   onProgress?.(100);
