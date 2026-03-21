@@ -258,24 +258,23 @@ app.get('/', async (c) => {
 
   if (searchParams.query) {
     const q = searchParams.query.trim();
-    db.select()
-      .from(searchHistory)
-      .where(and(eq(searchHistory.userId, userId), eq(searchHistory.query, q)))
-      .get()
-      .then((existing) => {
-        if (!existing) {
-          db.insert(searchHistory)
-            .values({
-              id: crypto.randomUUID(),
-              userId,
-              query: q,
-              createdAt: new Date().toISOString(),
-            })
-            .run()
-            .catch(() => {});
-        }
-      })
-      .catch(() => {});
+    try {
+      const existing = await db
+        .select()
+        .from(searchHistory)
+        .where(and(eq(searchHistory.userId, userId), eq(searchHistory.query, q)))
+        .get();
+      if (!existing) {
+        await db.insert(searchHistory).values({
+          id: crypto.randomUUID(),
+          userId,
+          query: q,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to save search history:', error);
+    }
   }
 
   return c.json({

@@ -128,23 +128,6 @@ export const storageBuckets = sqliteTable(
   })
 );
 
-export const webdavSessions = sqliteTable(
-  'webdav_sessions',
-  {
-    id: text('id').primaryKey(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    token: text('token').notNull().unique(),
-    expiresAt: text('expires_at').notNull(),
-    createdAt: text('created_at').notNull(),
-  },
-  (table) => ({
-    expiresIdx: index('idx_webdav_expires').on(table.expiresAt),
-    userIdx: index('idx_webdav_user').on(table.userId, table.expiresAt),
-  })
-);
-
 export const fileTags = sqliteTable(
   'file_tags',
   {
