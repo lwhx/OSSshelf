@@ -434,7 +434,37 @@ app.get('/:id', async (c) => {
   });
 });
 
-// ── Public: preview（仅图片，防止媒体滥用）────────────────────────────────
+const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
+
+const PREVIEWABLE_MIME_PREFIXES = ['image/', 'video/', 'audio/', 'text/'];
+const PREVIEWABLE_MIME_TYPES = [
+  'application/pdf',
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/typescript',
+];
+
+function isPreviewableMimeType(mimeType: string | null): boolean {
+  if (!mimeType) return false;
+  if (PREVIEWABLE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return true;
+  if (PREVIEWABLE_MIME_TYPES.includes(mimeType)) return true;
+  return false;
+}
+
+function getPreviewType(mimeType: string | null): string {
+  if (!mimeType) return 'unknown';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (mimeType.startsWith('text/')) return 'text';
+  if (['application/json', 'application/xml', 'application/javascript', 'application/typescript'].includes(mimeType))
+    return 'code';
+  return 'unknown';
+}
+
+// ── Public: preview（支持图片/视频/音频/PDF/文本）────────────────────────────
 app.get('/:id/preview', async (c) => {
   const shareId = c.req.param('id');
   const password = c.req.query('password');
@@ -449,8 +479,18 @@ app.get('/:id/preview', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
 
-  if (!file.mimeType?.startsWith('image/')) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只支持预览图片' } }, 400);
+  if (!isPreviewableMimeType(file.mimeType)) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
+      400
+    );
+  }
+
+  if (file.size > MAX_PREVIEW_SIZE && !file.mimeType?.startsWith('video/') && !file.mimeType?.startsWith('audio/')) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE, message: '文件过大，请下载后查看' } },
+      400
+    );
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -462,6 +502,144 @@ app.get('/:id/preview', async (c) => {
   } catch (e: any) {
     return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
   }
+});
+
+// ── Public: stream preview（视频/音频流式预览，支持 Range）────────────────────
+app.get('/:id/stream', async (c) => {
+  const shareId = c.req.param('id');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+
+  if (!file.mimeType?.startsWith('video/') && !file.mimeType?.startsWith('audio/')) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持视频/音频流式预览' } },
+      400
+    );
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  const range = c.req.header('Range');
+
+  try {
+    const buf = await fetchFileContent(c.env, db, encKey, file);
+    const fileSize = buf.byteLength;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0] || '0', 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+      const chunk = buf.slice(start, end + 1);
+
+      return new Response(chunk, {
+        status: 206,
+        headers: {
+          'Content-Type': file.mimeType!,
+          'Content-Length': chunkSize.toString(),
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, max-age=300',
+        },
+      });
+    }
+
+    return new Response(buf, {
+      headers: {
+        'Content-Type': file.mimeType!,
+        'Content-Length': fileSize.toString(),
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'private, max-age=300',
+      },
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+  }
+});
+
+// ── Public: raw text content（文本内容预览）──────────────────────────────────
+app.get('/:id/raw', async (c) => {
+  const shareId = c.req.param('id');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+
+  const isTextFile =
+    file.mimeType?.startsWith('text/') ||
+    file.mimeType === 'application/json' ||
+    file.mimeType === 'application/xml' ||
+    file.mimeType === 'application/javascript' ||
+    file.mimeType === 'application/typescript';
+
+  if (!isTextFile) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持文本文件预览' } },
+      400
+    );
+  }
+
+  if (file.size > MAX_PREVIEW_SIZE) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE, message: '文件过大，请下载后查看' } },
+      400
+    );
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  try {
+    const buf = await fetchFileContent(c.env, db, encKey, file);
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    return c.json({ success: true, data: { content: text, mimeType: file.mimeType } });
+  } catch (e: any) {
+    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+  }
+});
+
+// ── Public: preview info（获取预览信息）──────────────────────────────────────
+app.get('/:id/preview-info', async (c) => {
+  const shareId = c.req.param('id');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+
+  const previewType = getPreviewType(file.mimeType);
+  const canPreview = isPreviewableMimeType(file.mimeType);
+
+  return c.json({
+    success: true,
+    data: {
+      id: file.id,
+      name: file.name,
+      size: file.size,
+      mimeType: file.mimeType,
+      previewType,
+      canPreview,
+    },
+  });
 });
 
 // ── Public: download single file via share ────────────────────────────────
@@ -666,6 +844,196 @@ app.get('/:id/file/:fileId/download', async (c) => {
         'Content-Length': childFile.size.toString(),
       },
     });
+  } catch (e: any) {
+    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+  }
+});
+
+// ── Public: preview child file within a folder share ────────────────────────
+// GET /api/share/:id/file/:fileId/preview?password=...
+app.get('/:id/file/:fileId/preview', async (c) => {
+  const shareId = c.req.param('id');
+  const childFileId = c.req.param('fileId');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!folder?.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+  }
+
+  const childFile = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
+    .get();
+  if (!childFile || childFile.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  }
+
+  if (!isPreviewableMimeType(childFile.mimeType)) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
+      400
+    );
+  }
+
+  if (
+    childFile.size > MAX_PREVIEW_SIZE &&
+    !childFile.mimeType?.startsWith('video/') &&
+    !childFile.mimeType?.startsWith('audio/')
+  ) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE, message: '文件过大，请下载后查看' } },
+      400
+    );
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  try {
+    const buf = await fetchFileContent(c.env, db, encKey, childFile);
+    return new Response(buf, {
+      headers: { 'Content-Type': childFile.mimeType!, 'Cache-Control': 'private, max-age=300' },
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+  }
+});
+
+// ── Public: stream child file (video/audio) within a folder share ───────────
+// GET /api/share/:id/file/:fileId/stream?password=...
+app.get('/:id/file/:fileId/stream', async (c) => {
+  const shareId = c.req.param('id');
+  const childFileId = c.req.param('fileId');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!folder?.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+  }
+
+  const childFile = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
+    .get();
+  if (!childFile || childFile.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  }
+
+  if (!childFile.mimeType?.startsWith('video/') && !childFile.mimeType?.startsWith('audio/')) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持视频/音频流式预览' } },
+      400
+    );
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  const range = c.req.header('Range');
+
+  try {
+    const buf = await fetchFileContent(c.env, db, encKey, childFile);
+    const fileSize = buf.byteLength;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0] || '0', 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+      const chunk = buf.slice(start, end + 1);
+
+      return new Response(chunk, {
+        status: 206,
+        headers: {
+          'Content-Type': childFile.mimeType!,
+          'Content-Length': chunkSize.toString(),
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, max-age=300',
+        },
+      });
+    }
+
+    return new Response(buf, {
+      headers: {
+        'Content-Type': childFile.mimeType!,
+        'Content-Length': fileSize.toString(),
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'private, max-age=300',
+      },
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+  }
+});
+
+// ── Public: raw text content of child file within a folder share ────────────
+// GET /api/share/:id/file/:fileId/raw?password=...
+app.get('/:id/file/:fileId/raw', async (c) => {
+  const shareId = c.req.param('id');
+  const childFileId = c.req.param('fileId');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!folder?.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+  }
+
+  const childFile = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
+    .get();
+  if (!childFile || childFile.isFolder) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  }
+
+  const isTextFile =
+    childFile.mimeType?.startsWith('text/') ||
+    childFile.mimeType === 'application/json' ||
+    childFile.mimeType === 'application/xml' ||
+    childFile.mimeType === 'application/javascript' ||
+    childFile.mimeType === 'application/typescript';
+
+  if (!isTextFile) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持文本文件预览' } },
+      400
+    );
+  }
+
+  if (childFile.size > MAX_PREVIEW_SIZE) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE, message: '文件过大，请下载后查看' } },
+      400
+    );
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  try {
+    const buf = await fetchFileContent(c.env, db, encKey, childFile);
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    return c.json({ success: true, data: { content: text, mimeType: childFile.mimeType } });
   } catch (e: any) {
     return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
   }

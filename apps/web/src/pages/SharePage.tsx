@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
+import { ShareFilePreview } from '@/components/share/ShareFilePreview';
 import {
   Download,
   Lock,
@@ -28,6 +29,7 @@ import {
   XCircle,
   Loader2,
   File,
+  Eye,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,6 +102,12 @@ function PasswordPrompt({ isWrong, onSubmit }: { isWrong: boolean; onSubmit: (pw
 function DownloadSharePage({ shareId }: { shareId: string }) {
   const [enteredPw, setEnteredPw] = useState<string | undefined>(undefined);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [previewFile, setPreviewFile] = useState<{
+    id: string;
+    name: string;
+    size: number;
+    mimeType: string | null;
+  } | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['share-public', shareId, enteredPw],
@@ -119,6 +127,21 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
   const children: ShareChildFile[] = share?.children ?? [];
   const fileChildren = children.filter((c) => !c.isFolder);
   const allSelected = fileChildren.length > 0 && fileChildren.every((c) => selectedIds.has(c.id));
+
+  const canPreviewFile = (mimeType: string | null) => {
+    if (!mimeType) return false;
+    return (
+      mimeType.startsWith('image/') ||
+      mimeType.startsWith('video/') ||
+      mimeType.startsWith('audio/') ||
+      mimeType === 'application/pdf' ||
+      mimeType.startsWith('text/') ||
+      mimeType === 'application/json' ||
+      mimeType === 'application/xml' ||
+      mimeType === 'application/javascript' ||
+      mimeType === 'application/typescript'
+    );
+  };
 
   const trigger = (url: string, name: string) => {
     const a = document.createElement('a');
@@ -171,7 +194,17 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
       {share && !isFolder && (
         <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
           {share.file?.mimeType?.startsWith('image/') ? (
-            <div className="bg-muted/30 border-b flex items-center justify-center p-6 min-h-[180px]">
+            <div
+              className="bg-muted/30 border-b flex items-center justify-center p-6 min-h-[180px] cursor-pointer"
+              onClick={() =>
+                setPreviewFile({
+                  id: shareId,
+                  name: share.file!.name,
+                  size: share.file!.size,
+                  mimeType: share.file!.mimeType,
+                })
+              }
+            >
               <img
                 src={shareApi.previewUrl(shareId, enteredPw)}
                 alt={decodeFileName(share.file.name)}
@@ -191,12 +224,30 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
               <h1 className="font-semibold text-base break-all">{decodeFileName(share.file?.name)}</h1>
               <ShareMeta share={share} />
             </div>
-            <Button
-              className="w-full"
-              onClick={() => trigger(shareApi.downloadUrl(shareId, enteredPw), share.file!.name)}
-            >
-              <Download className="h-4 w-4 mr-2" /> 下载文件
-            </Button>
+            <div className="flex gap-2">
+              {canPreviewFile(share.file?.mimeType ?? null) && (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() =>
+                    setPreviewFile({
+                      id: shareId,
+                      name: share.file!.name,
+                      size: share.file!.size,
+                      mimeType: share.file!.mimeType,
+                    })
+                  }
+                >
+                  <Eye className="h-4 w-4 mr-2" /> 预览
+                </Button>
+              )}
+              <Button
+                className={canPreviewFile(share.file?.mimeType ?? null) ? 'flex-1' : 'w-full'}
+                onClick={() => trigger(shareApi.downloadUrl(shareId, enteredPw), share.file!.name)}
+              >
+                <Download className="h-4 w-4 mr-2" /> 下载
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -295,19 +346,54 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                   </div>
 
                   {!child.isFolder && (
-                    <button
-                      onClick={() => trigger(shareApi.childDownloadUrl(shareId, child.id, enteredPw), child.name)}
-                      className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded hover:bg-accent"
-                      title="下载"
-                    >
-                      <Download className="h-3.5 w-3.5 text-muted-foreground" />
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {canPreviewFile(child.mimeType) && (
+                        <button
+                          onClick={() =>
+                            setPreviewFile({
+                              id: child.id,
+                              name: child.name,
+                              size: child.size,
+                              mimeType: child.mimeType,
+                            })
+                          }
+                          className="flex-shrink-0 p-1.5 rounded hover:bg-accent"
+                          title="预览"
+                        >
+                          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => trigger(shareApi.childDownloadUrl(shareId, child.id, enteredPw), child.name)}
+                        className="flex-shrink-0 p-1.5 rounded hover:bg-accent"
+                        title="下载"
+                      >
+                        <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {previewFile && (
+        <ShareFilePreview
+          shareId={shareId}
+          file={previewFile}
+          password={enteredPw}
+          isChildFile={previewFile.id !== shareId}
+          onClose={() => setPreviewFile(null)}
+          onDownload={() => {
+            if (previewFile.id === shareId) {
+              trigger(shareApi.downloadUrl(shareId, enteredPw), previewFile.name);
+            } else {
+              trigger(shareApi.childDownloadUrl(shareId, previewFile.id, enteredPw), previewFile.name);
+            }
+          }}
+        />
       )}
     </Shell>
   );

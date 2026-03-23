@@ -251,11 +251,9 @@ app.post('/registration/codes', async (c) => {
 
   for (let i = 0; i < count; i++) {
     const code = generateInviteCode();
-    await c.env.KV.put(
-      `${INVITE_PREFIX}${code}`,
-      JSON.stringify({ usedBy: null, createdAt: now }),
-      { expirationTtl: 60 * 60 * 24 * 30 }
-    );
+    await c.env.KV.put(`${INVITE_PREFIX}${code}`, JSON.stringify({ usedBy: null, createdAt: now }), {
+      expirationTtl: 60 * 60 * 24 * 30,
+    });
     codes.push(code);
   }
 

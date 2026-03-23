@@ -235,11 +235,47 @@ export const shareApi = {
     return qs ? `${base}?${qs}` : base;
   },
 
-  // ── 预览（仅图片）────────────────────────────────────────────────────
+  // ── 预览（图片/视频/音频/PDF/文本）────────────────────────────────────
   previewUrl: (id: string, password?: string) =>
     `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/preview${
       password ? `?password=${encodeURIComponent(password)}` : ''
     }`,
+
+  streamUrl: (id: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/stream${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  getRawContent: (id: string, password?: string) =>
+    api.get<ApiResponse<{ content: string; mimeType: string }>>(`/api/share/${id}/raw`, { params: { password } }),
+
+  getPreviewInfo: (id: string, password?: string) =>
+    api.get<
+      ApiResponse<{
+        id: string;
+        name: string;
+        size: number;
+        mimeType: string | null;
+        previewType: string;
+        canPreview: boolean;
+      }>
+    >(`/api/share/${id}/preview-info`, { params: { password } }),
+
+  // ── 文件夹内子文件预览 ────────────────────────────────────────────────
+  childPreviewUrl: (shareId: string, fileId: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${shareId}/file/${fileId}/preview${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  childStreamUrl: (shareId: string, fileId: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${shareId}/file/${fileId}/stream${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  getChildRawContent: (shareId: string, fileId: string, password?: string) =>
+    api.get<ApiResponse<{ content: string; mimeType: string }>>(`/api/share/${shareId}/file/${fileId}/raw`, {
+      params: { password },
+    }),
 
   // ── 上传链接（有账号创建）────────────────────────────────────────────
   createUploadLink: (params: CreateUploadLinkParams) =>
