@@ -5,17 +5,21 @@
  * 功能:
  * - 图片/视频/音频预览
  * - PDF文档预览
- * - 文本/代码预览
- * - Markdown 渲染预览
- * - Office文档预览（Word/Excel本地渲染）
+ * - 文本/代码预览（带语法高亮）
+ * - Markdown 渲染预览（带代码高亮、表格样式、架构图支持）
+ * - Office文档预览（Word/Excel本地渲染，保留样式）
  * - 预览信息展示
  */
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import hljs from 'highlight.js';
 import {
   X,
   Download,
@@ -38,6 +42,9 @@ import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/utils';
+
+import 'highlight.js/styles/github-dark.css';
+import 'katex/dist/katex.min.css';
 
 interface PreviewInfo {
   id: string;
@@ -68,6 +75,229 @@ const WINDOW_SIZE_CONFIG: Record<WindowSize, { width: string; height: string; ma
   fullscreen: { width: '100vw', height: '100vh', maxWidth: '100vw' },
 };
 
+const CODE_LANGUAGE_MAP: Record<string, string> = {
+  js: 'javascript',
+  jsx: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  c: 'c',
+  cpp: 'cpp',
+  h: 'c',
+  hpp: 'cpp',
+  cs: 'csharp',
+  php: 'php',
+  swift: 'swift',
+  kt: 'kotlin',
+  scala: 'scala',
+  r: 'r',
+  sql: 'sql',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  json: 'json',
+  xml: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml',
+  md: 'markdown',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  html: 'html',
+  vue: 'vue',
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+  toml: 'toml',
+  ini: 'ini',
+  env: 'bash',
+};
+
+function getLanguageFromExtension(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return CODE_LANGUAGE_MAP[ext] || 'plaintext';
+}
+
+function highlightCode(code: string, language: string): string {
+  try {
+    if (hljs.getLanguage(language)) {
+      return hljs.highlight(code, { language }).value;
+    }
+    return hljs.highlightAuto(code).value;
+  } catch {
+    return code;
+  }
+}
+
+interface ExcelCellStyle {
+  font?: {
+    bold?: boolean;
+    italic?: boolean;
+    color?: { rgb?: string };
+    sz?: number;
+    name?: string;
+  };
+  fill?: {
+    fgColor?: { rgb?: string; theme?: number };
+    bgColor?: { rgb?: string; theme?: number };
+    patternType?: string;
+  };
+  alignment?: {
+    horizontal?: string;
+    vertical?: string;
+    wrapText?: boolean;
+  };
+  border?: {
+    top?: { style?: string; color?: { rgb?: string } };
+    bottom?: { style?: string; color?: { rgb?: string } };
+    left?: { style?: string; color?: { rgb?: string } };
+    right?: { style?: string; color?: { rgb?: string } };
+  };
+  numFmt?: string;
+}
+
+function rgbToHex(rgb: string | undefined): string | undefined {
+  if (!rgb) return undefined;
+  if (rgb.startsWith('#')) return rgb;
+  if (rgb.length === 6 && /^[0-9A-Fa-f]{6}$/.test(rgb)) {
+    return `#${rgb}`;
+  }
+  if (rgb.length === 8 && rgb.startsWith('FF')) {
+    return `#${rgb.slice(2)}`;
+  }
+  return undefined;
+}
+
+function getExcelCellStyle(cell: XLSX.CellObject, workbook: XLSX.WorkBook): React.CSSProperties {
+  const styles: React.CSSProperties = {};
+  if (!cell.s) return styles;
+
+  const cellStyle = cell.s as ExcelCellStyle;
+
+  if (cellStyle.font) {
+    if (cellStyle.font.bold) styles.fontWeight = 'bold';
+    if (cellStyle.font.italic) styles.fontStyle = 'italic';
+    if (cellStyle.font.sz) styles.fontSize = `${cellStyle.font.sz}px`;
+    if (cellStyle.font.name) styles.fontFamily = cellStyle.font.name;
+    if (cellStyle.font.color?.rgb) {
+      const color = rgbToHex(cellStyle.font.color.rgb);
+      if (color) styles.color = color;
+    }
+  }
+
+  if (cellStyle.fill?.fgColor) {
+    const bgColor = rgbToHex(cellStyle.fill.fgColor.rgb);
+    if (bgColor) {
+      styles.backgroundColor = bgColor;
+    }
+  }
+
+  if (cellStyle.alignment) {
+    if (cellStyle.alignment.horizontal) {
+      styles.textAlign = cellStyle.alignment.horizontal as React.CSSProperties['textAlign'];
+    }
+    if (cellStyle.alignment.vertical) {
+      styles.verticalAlign = cellStyle.alignment.vertical as React.CSSProperties['verticalAlign'];
+    }
+    if (cellStyle.alignment.wrapText) {
+      styles.whiteSpace = 'pre-wrap';
+      styles.wordBreak = 'break-word';
+    }
+  }
+
+  return styles;
+}
+
+function formatExcelValue(cell: XLSX.CellObject): string {
+  if (cell.v === undefined || cell.v === null) return '';
+  if (typeof cell.v === 'number') {
+    if (cell.w) return cell.w;
+    return cell.v.toLocaleString();
+  }
+  if (cell.v instanceof Date) {
+    return cell.v.toLocaleString();
+  }
+  return String(cell.v);
+}
+
+function renderExcelSheetWithStyles(
+  worksheet: XLSX.WorkSheet,
+  workbook: XLSX.WorkBook
+): { html: string; merges: XLSX.Range[] } {
+  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+  const merges = worksheet['!merges'] || [];
+
+  const rows: string[] = [];
+  rows.push(
+    '<table style="border-collapse: collapse; width: 100%; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;">'
+  );
+
+  for (let row = range.s.r; row <= range.e.r; row++) {
+    const cells: string[] = [];
+    cells.push('<tr>');
+
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = worksheet[cellAddress];
+
+      let isMerged = false;
+      let rowSpan = 1;
+      let colSpan = 1;
+
+      for (const merge of merges) {
+        if (row >= merge.s.r && row <= merge.e.r && col >= merge.s.c && col <= merge.e.c) {
+          if (row === merge.s.r && col === merge.s.c) {
+            rowSpan = merge.e.r - merge.s.r + 1;
+            colSpan = merge.e.c - merge.s.c + 1;
+          } else {
+            isMerged = true;
+          }
+          break;
+        }
+      }
+
+      if (isMerged) {
+        continue;
+      }
+
+      const baseStyle: React.CSSProperties = {
+        border: '1px solid #e5e7eb',
+        padding: '6px 10px',
+        textAlign: 'left',
+        verticalAlign: 'top',
+        minWidth: '60px',
+        height: '24px',
+      };
+
+      const cellStyle = cell ? getExcelCellStyle(cell, workbook) : {};
+      const mergedStyle = { ...baseStyle, ...cellStyle };
+
+      const styleStr = Object.entries(mergedStyle)
+        .map(([key, value]) => {
+          const cssKey = key.replace(/([A-Z])/g, '-$1').toLowerCase();
+          return `${cssKey}: ${value}`;
+        })
+        .join('; ');
+
+      const value = cell ? formatExcelValue(cell) : '';
+      const tag = row === range.s.r ? 'th' : 'td';
+      const extraAttrs =
+        rowSpan > 1 ? ` rowspan="${rowSpan}"` : '' + (colSpan > 1 ? ` colspan="${colSpan}"` : '');
+
+      cells.push(`<${tag} style="${styleStr}"${extraAttrs}>${value || '&nbsp;'}</${tag}>`);
+    }
+
+    cells.push('</tr>');
+    rows.push(cells.join(''));
+  }
+
+  rows.push('</table>');
+  return { html: rows.join(''), merges };
+}
+
 export function FilePreview({ file, token, onClose, onDownload, onShare }: FilePreviewProps) {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -79,6 +309,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [excelLoading, setExcelLoading] = useState(false);
   const [excelWorkbook, setExcelWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [activeSheetName, setActiveSheetName] = useState<string | null>(null);
+  const [excelHtml, setExcelHtml] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const docxContainerRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +337,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     file.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
     file.mimeType === 'application/vnd.ms-powerpoint';
   const isOffice = isWord || isExcel || isPpt;
+  const isCode = isText && !isMarkdown;
+
+  const detectedLanguage = useMemo(() => {
+    if (previewInfo?.language) return previewInfo.language;
+    return getLanguageFromExtension(file.name);
+  }, [file.name, previewInfo?.language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +356,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setExcelLoading(false);
     setExcelWorkbook(null);
     setActiveSheetName(null);
+    setExcelHtml(null);
     setZoomLevel(100);
     setWindowSize('medium');
 
@@ -165,18 +403,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   const loadDocxPreview = useCallback(async () => {
     if (!isWord || !resolvedUrl || !docxContainerRef.current) {
-      console.log('DOCX preview skipped:', {
-        isWord,
-        resolvedUrl: !!resolvedUrl,
-        container: !!docxContainerRef.current,
-      });
       return;
     }
 
     setOfficeLoading(true);
     setOfficeError(null);
-
-    console.log('DOCX preview starting, file size:', file.size, 'bytes');
 
     try {
       const response = await fetch(resolvedUrl);
@@ -184,8 +415,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
         throw new Error(`文件加载失败: ${response.status}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-
-      console.log('DOCX file loaded, buffer size:', arrayBuffer.byteLength);
 
       if (!docxContainerRef.current) {
         throw new Error('容器不可用');
@@ -196,8 +425,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       }
 
       docxContainerRef.current.innerHTML = '';
-
-      console.log('DOCX rendering started...');
 
       await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
         className: 'docx-preview-wrapper',
@@ -216,14 +443,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
         renderEndnotes: true,
       });
 
-      console.log('DOCX rendering completed, children:', docxContainerRef.current.children.length);
-
       const renderedContent = docxContainerRef.current.querySelector('.docx-preview-wrapper');
       if (!renderedContent || docxContainerRef.current.children.length === 0) {
         throw new Error('文档渲染结果为空');
       }
-
-      console.log('DOCX preview successful');
     } catch (err) {
       console.error('DOCX preview error:', err);
       setOfficeError(err instanceof Error ? err.message : '文档预览失败，请下载查看');
@@ -242,13 +465,22 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
         throw new Error(`文件加载失败: ${response.status}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const workbook = XLSX.read(arrayBuffer, {
+        type: 'array',
+        cellStyles: true,
+        cellNF: true,
+        cellDates: true,
+      });
       setExcelWorkbook(workbook);
       const firstSheetName = workbook.SheetNames[0];
       if (firstSheetName) {
         setActiveSheetName(firstSheetName);
-        const worksheet = workbook.Sheets[firstSheetName] || null;
-        setExcelData(worksheet);
+        const worksheet = workbook.Sheets[firstSheetName];
+        if (worksheet) {
+          setExcelData(worksheet);
+          const { html } = renderExcelSheetWithStyles(worksheet, workbook);
+          setExcelHtml(html);
+        }
       } else {
         setLoadError(true);
       }
@@ -264,8 +496,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     (sheetName: string) => {
       if (!excelWorkbook) return;
       setActiveSheetName(sheetName);
-      const worksheet = excelWorkbook.Sheets[sheetName] || null;
-      setExcelData(worksheet);
+      const worksheet = excelWorkbook.Sheets[sheetName];
+      if (worksheet) {
+        setExcelData(worksheet);
+        const { html } = renderExcelSheetWithStyles(worksheet, excelWorkbook);
+        setExcelHtml(html);
+      }
     },
     [excelWorkbook]
   );
@@ -331,29 +567,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     return 'Office 文档';
   };
 
-  const renderExcelTable = () => {
-    if (!excelData) return null;
-    const html = XLSX.utils.sheet_to_html(excelData, { editable: false });
-    const styledHtml = html
-      .replace('<table>', '<table style="border-collapse: collapse; width: 100%; font-size: 13px;">')
-      .replace(
-        /<td/g,
-        '<td style="border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; vertical-align: top;"'
-      )
-      .replace(
-        /<th/g,
-        '<th style="border: 1px solid #d1d5db; padding: 8px 10px; background-color: #f3f4f6; font-weight: 600; text-align: left;"'
-      );
-    return (
-      <div
-        className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4"
-        style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' }}
-      >
-        <div dangerouslySetInnerHTML={{ __html: styledHtml }} />
-      </div>
-    );
-  };
-
   const renderOfficeFallback = (message?: string) => (
     <div className="flex items-center justify-center h-full">
       <div className="text-center py-12 px-6 space-y-4">
@@ -376,6 +589,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const sizeConfig = WINDOW_SIZE_CONFIG[windowSize];
   const showZoomControls = isText || isMarkdown || isExcel || isWord;
   const showSheetTabs = isExcel && excelWorkbook && excelWorkbook.SheetNames.length > 1;
+
+  const highlightedCode = useMemo(() => {
+    if (!textContent || !isCode) return null;
+    return highlightCode(textContent, detectedLanguage);
+  }, [textContent, isCode, detectedLanguage]);
 
   return (
     <div
@@ -544,11 +762,59 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             />
           ) : isMarkdown ? (
             <div
-              className="w-full h-full overflow-auto p-6 prose dark:prose-invert max-w-none"
+              className="w-full h-full overflow-auto p-6 prose dark:prose-invert prose-pre:bg-muted prose-pre:border prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none max-w-none prose-table:border-collapse prose-th:border prose-th:border-border prose-th:bg-muted prose-th:p-2 prose-td:border prose-td:border-border prose-td:p-2 prose-tr:even:bg-muted/30"
               style={{ fontSize: `${zoomLevel}%` }}
             >
               {textContent !== null ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeHighlight, rehypeKatex]}
+                  components={{
+                    pre: ({ children, ...props }) => {
+                      return (
+                        <pre {...props} className="overflow-x-auto">
+                          {children}
+                        </pre>
+                      );
+                    },
+                    code: ({ className, children, ...props }) => {
+                      const match = /language-(\w+)/.exec(className || '');
+                      const isInline = !match && !className?.includes('hljs');
+                      if (isInline) {
+                        return (
+                          <code className="px-1.5 py-0.5 rounded bg-muted text-sm" {...props}>
+                            {children}
+                          </code>
+                        );
+                      }
+                      return (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {textContent}
+                </ReactMarkdown>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                </div>
+              )}
+            </div>
+          ) : isCode ? (
+            <div
+              className="w-full h-full overflow-auto bg-[#0d1117] dark:bg-[#0d1117]"
+              style={{ fontSize: `${zoomLevel}%` }}
+            >
+              {textContent !== null ? (
+                <pre className="p-4 m-0 leading-relaxed">
+                  <code
+                    className={`language-${detectedLanguage} hljs`}
+                    dangerouslySetInnerHTML={{ __html: highlightedCode || textContent }}
+                  />
+                </pre>
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
@@ -558,12 +824,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           ) : isText ? (
             <div className="w-full h-full overflow-auto p-4" style={{ fontSize: `${zoomLevel}%` }}>
               {textContent !== null ? (
-                <pre
-                  className={cn(
-                    'text-xs font-mono whitespace-pre-wrap leading-relaxed',
-                    previewInfo?.previewType === 'code' ? 'text-green-600 dark:text-green-400' : 'text-foreground/80'
-                  )}
-                >
+                <pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed text-foreground/80">
                   {textContent}
                 </pre>
               ) : (
@@ -606,9 +867,13 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                     <div className="absolute inset-0 flex items-center justify-center z-10">
                       {renderOfficeFallback('Excel 加载失败')}
                     </div>
-                  ) : (
-                    renderExcelTable()
-                  )}
+                  ) : excelHtml ? (
+                    <div
+                      className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4"
+                      style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top left' }}
+                      dangerouslySetInnerHTML={{ __html: excelHtml }}
+                    />
+                  ) : null}
                 </>
               ) : isPpt ? (
                 renderOfficeFallback('PowerPoint 暂不支持在线预览')
