@@ -374,11 +374,15 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
   // 策略1：直接精确匹配 path 字段（命中 WebDAV 上传的编码路径）
   const normalized = path.endsWith('/') ? path.slice(0, -1) : path;
 
+  console.log('[findFileByPath] 开始查找:', { userId, path, normalized });
+
   let file = await db
     .select()
     .from(files)
     .where(and(eq(files.userId, userId), eq(files.path, normalized), isNull(files.deletedAt)))
     .get();
+
+  console.log('[findFileByPath] 策略1-精确匹配 normalized:', { normalized, found: !!file });
 
   if (!file) {
     file = await db
@@ -386,14 +390,20 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
       .from(files)
       .where(and(eq(files.userId, userId), eq(files.path, normalized + '/'), isNull(files.deletedAt)))
       .get();
+    console.log('[findFileByPath] 策略1-精确匹配 normalized+/:', { pathWithSlash: normalized + '/', found: !!file });
   }
 
-  if (file) return file;
+  if (file) {
+    console.log('[findFileByPath] 策略1命中:', { id: file.id, name: file.name, path: file.path });
+    return file;
+  }
 
   // 策略2：按名称层级递归定位（适配非 WebDAV 上传，name/path 存储的是原始中文）
   // WebDAV 请求路径中中文被编码为 %XX，需要 decode 后才能匹配数据库中的中文名称
   const parts = normalized.split('/').filter(Boolean);
   if (parts.length === 0) return undefined;
+
+  console.log('[findFileByPath] 策略2-层级递归:', { parts });
 
   let currentParentId: string | null = null;
   let currentFile: File | undefined;
@@ -402,6 +412,8 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
     // 同时尝试原始值（匹配 WebDAV 上传的编码名）和 decoded 值（匹配非 WebDAV 上传的中文名）
     const decodedPart = safeDecodeURIComponent(part);
     const nameCandidates = Array.from(new Set([part, decodedPart]));
+
+    console.log('[findFileByPath] 查找段:', { part, decodedPart, nameCandidates, currentParentId });
 
     let found: File | undefined;
     for (const namePart of nameCandidates) {
@@ -417,14 +429,21 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
           )
         )
         .get();
-      if (found) break;
+      if (found) {
+        console.log('[findFileByPath] 段匹配成功:', { namePart, foundId: found.id, foundName: found.name });
+        break;
+      }
     }
 
-    if (!found) return undefined;
+    if (!found) {
+      console.log('[findFileByPath] 段匹配失败，返回 undefined');
+      return undefined;
+    }
     currentFile = found;
     currentParentId = currentFile.id;
   }
 
+  console.log('[findFileByPath] 策略2命中:', currentFile ? { id: currentFile.id, name: currentFile.name, path: currentFile.path } : null);
   return currentFile;
 }
 
@@ -473,12 +492,22 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   const fileName = normalizedPath.split('/').pop() || 'untitled';
   const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
+  // 调试日志：路径解析
+  console.log('[WebDAV PUT] 路径解析:', {
+    originalPath: path,
+    normalizedPath,
+    fileName,
+    parentPath,
+    bodySize: body.byteLength
+  });
+
   const db = getDb(c.env.DB);
   const encKeyP = getEncryptionKey(c.env);
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
+    console.log('[WebDAV PUT] 父目录查找:', { parentPath, found: !!parentFolder, parentId: parentFolder?.id });
     if (!parentFolder) {
       // 自动创建父目录
       const pathParts = parentPath.split('/').filter(Boolean);
@@ -523,6 +552,17 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   }
 
   const existingFile = await findFileByPath(db, userId, normalizedPath);
+
+  // 调试日志：文件查找结果
+  console.log('[WebDAV PUT] 文件查找:', {
+    normalizedPath,
+    existingFile: existingFile ? {
+      id: existingFile.id,
+      name: existingFile.name,
+      path: existingFile.path,
+      size: existingFile.size
+    } : null
+  });
 
   const fileId = existingFile?.id || crypto.randomUUID();
   const now = new Date().toISOString();
