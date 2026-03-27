@@ -366,24 +366,31 @@ export default function Files() {
 
   const handleDownload = useCallback(
     async (file: FileItem) => {
+      // 强制下载辅助函数：将 blob 以 octet-stream 强制触发下载，避免浏览器 inline 打开
+      const forceBlobDownload = (blob: Blob, name: string) => {
+        const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
+        const blobUrl = URL.createObjectURL(forceBlob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      };
+
       try {
         const result = await getPresignedDownloadUrl(file.id);
         const { url, fileName, useProxy } = result;
 
         if (useProxy) {
-          // proxy URL 需走 fetch+blob，否则浏览器会直接在新 tab 打开而非下载
+          // proxy URL 含 token query param，fetch 后强制 blob 下载
           const resp = await fetch(url);
           if (!resp.ok) throw new Error('download failed');
           const blob = await resp.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = fileName || file.name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(blobUrl);
+          forceBlobDownload(blob, fileName || file.name);
         } else {
+          // presigned URL：直接用 <a download>（S3/R2 会设置正确 Content-Disposition）
           const a = document.createElement('a');
           a.href = url;
           a.download = fileName || file.name;
@@ -395,18 +402,18 @@ export default function Files() {
         try {
           const downloadToken = token || useAuthStore.getState().token;
           const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
-          // fallback 也走 fetch+blob
           const resp = await fetch(downloadUrl);
           if (!resp.ok) throw new Error('download failed');
           const blob = await resp.blob();
-          const blobUrl = URL.createObjectURL(blob);
+          const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
+          const blobUrl = URL.createObjectURL(forceBlob);
           const a = document.createElement('a');
           a.href = blobUrl;
           a.download = file.name;
           document.body.appendChild(a);
           a.click();
           a.remove();
-          URL.revokeObjectURL(blobUrl);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }

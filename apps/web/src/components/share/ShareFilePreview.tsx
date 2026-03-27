@@ -897,12 +897,13 @@ export function ShareFilePreview({
       const rendition = book.renderTo('epub-viewer-share', {
         width: '100%',
         height: '100%',
+        flow: 'paginated',
         spread: 'none',
+        minSpreadWidth: 9999,
       });
       epubRenditionRef.current = rendition;
 
       await rendition.display();
-      // display() resolve 后即可显示，不依赖 'rendered' 事件（epubjs 该事件不稳定）
       setEpubLoading(false);
 
       const locations = await book.locations.generate(1024);
@@ -1043,8 +1044,9 @@ export function ShareFilePreview({
     }
   }, [isExcel, getPreviewUrl]);
 
-  const loadPptPreview = useCallback(async (container: HTMLDivElement) => {
-    if (!isPpt) return;
+  const loadPptPreview = useCallback(async () => {
+    const container = pptxContainerRef.current;
+    if (!isPpt || !container) return;
 
     setPptLoading(true);
     try {
@@ -1054,7 +1056,7 @@ export function ShareFilePreview({
       }
       const arrayBuffer = await response.arrayBuffer();
 
-      // 每次都重新初始化 viewer，避免容器被卸载后 viewer 指向旧引用
+      // 每次都重新初始化，避免容器被卸载重建后 viewer 指向旧引用
       container.innerHTML = '';
       pptxViewerRef.current = initPptxPreview(container, {
         width: 960,
@@ -1070,14 +1072,10 @@ export function ShareFilePreview({
     }
   }, [isPpt, getPreviewUrl]);
 
-  // ref callback：容器挂载时立即触发加载
+  // ref callback：仅负责记录容器 DOM，不触发加载
   const pptxContainerCallbackRef = useCallback((node: HTMLDivElement | null) => {
     (pptxContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-    if (node && isPpt && !pptUseOnlineViewer) {
-      loadPptPreview(node);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPpt, pptUseOnlineViewer, loadPptPreview]);
+  }, []);
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel((prev) => Math.min(prev + 25, 200));
@@ -1152,15 +1150,28 @@ export function ShareFilePreview({
     }
   }, [isExcel, loadExcelPreview, officeUseOnlineViewer]);
 
-  // PPTX 本地预览由 pptxContainerCallbackRef 驱动，容器挂载时自动触发，无需此 effect
+  // PPTX 本地预览：等容器挂载就绪后触发
+  useEffect(() => {
+    if (!isPpt || pptUseOnlineViewer) return;
+    const id = requestAnimationFrame(() => {
+      if (pptxContainerRef.current) {
+        loadPptPreview();
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isPpt, pptUseOnlineViewer, loadPptPreview]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') { onClose(); return; }
+      if (isEpub) {
+        if (e.key === 'ArrowLeft') epubPrevPage();
+        else if (e.key === 'ArrowRight') epubNextPage();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [onClose, isEpub, epubPrevPage, epubNextPage]);
 
   const getOfficeIcon = () => {
     if (!mimeType) return <FileText className="h-6 w-6" />;
@@ -1843,7 +1854,7 @@ export function ShareFilePreview({
                 </div>
               )}
               {epubShowToc && epubToc.length > 0 && (
-                <div className="w-64 border-r border-border bg-muted/30 flex flex-col">
+                <div className="w-56 border-r border-border bg-muted/30 flex flex-col flex-shrink-0">
                   <div className="p-3 border-b border-border">
                     <span className="text-sm font-medium">目录</span>
                   </div>
@@ -1860,8 +1871,8 @@ export function ShareFilePreview({
                   </div>
                 </div>
               )}
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+              <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30 flex-shrink-0">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1871,7 +1882,7 @@ export function ShareFilePreview({
                     {epubShowToc ? '隐藏目录' : '显示目录'}
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    {epubTotalPages > 0 ? `位置 ${epubCurrentPage}/${epubTotalPages}` : ''}
+                    {epubTotalPages > 0 ? `位置 ${epubCurrentPage + 1} / ${epubTotalPages}` : ''}
                   </span>
                   <div className="flex items-center gap-1">
                     <Button
@@ -1892,7 +1903,28 @@ export function ShareFilePreview({
                     </Button>
                   </div>
                 </div>
-                <div id="epub-viewer-share" className="flex-1 overflow-hidden" />
+                {/* 阅读区：左右点击区翻页 */}
+                <div className="flex-1 relative overflow-hidden">
+                  <button
+                    onClick={epubPrevPage}
+                    className="absolute left-0 top-0 h-full w-16 z-10 flex items-center justify-start pl-1 opacity-0 hover:opacity-100 transition-opacity group"
+                    title="上一页"
+                  >
+                    <div className="bg-black/10 dark:bg-white/10 rounded-full p-1.5 group-hover:bg-black/20 dark:group-hover:bg-white/20 transition-colors">
+                      <ChevronLeft className="h-5 w-5 text-foreground/60" />
+                    </div>
+                  </button>
+                  <button
+                    onClick={epubNextPage}
+                    className="absolute right-0 top-0 h-full w-16 z-10 flex items-center justify-end pr-1 opacity-0 hover:opacity-100 transition-opacity group"
+                    title="下一页"
+                  >
+                    <div className="bg-black/10 dark:bg-white/10 rounded-full p-1.5 group-hover:bg-black/20 dark:group-hover:bg-white/20 transition-colors">
+                      <ChevronRight className="h-5 w-5 text-foreground/60" />
+                    </div>
+                  </button>
+                  <div id="epub-viewer-share" className="w-full h-full" />
+                </div>
               </div>
             </div>
           ) : null}
