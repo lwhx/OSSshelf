@@ -16,7 +16,7 @@ import { getDb, files, shares, storageBuckets, telegramFileRefs, users } from '.
 import { s3Get, s3Put } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, SHARE_DEFAULT_EXPIRY, MAX_FILE_SIZE, inferMimeType } from '@osshelf/shared';
+import { ERROR_CODES, SHARE_DEFAULT_EXPIRY, MAX_FILE_SIZE, inferMimeType, OFFICE_MIME_TYPES } from '@osshelf/shared';
 import { getEncryptionKey, hashPassword, verifyPassword } from '../lib/crypto';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
@@ -444,6 +444,7 @@ const PREVIEWABLE_MIME_TYPES = [
   'application/xml',
   'application/javascript',
   'application/typescript',
+  ...OFFICE_MIME_TYPES,
 ];
 
 function isPreviewableMimeType(mimeType: string | null): boolean {
@@ -462,6 +463,12 @@ function getPreviewType(mimeType: string | null): string {
   if (mimeType.startsWith('text/')) return 'text';
   if (['application/json', 'application/xml', 'application/javascript', 'application/typescript'].includes(mimeType))
     return 'code';
+  if (OFFICE_MIME_TYPES.includes(mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
+    if (mimeType.includes('word') || mimeType.includes('document')) return 'document';
+    if (mimeType.includes('excel') || mimeType.includes('sheet')) return 'spreadsheet';
+    if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return 'presentation';
+    return 'document';
+  }
   return 'unknown';
 }
 
