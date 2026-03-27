@@ -24,7 +24,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE, OFFICE_MIME_TYPES, isPreviewableMimeType } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';

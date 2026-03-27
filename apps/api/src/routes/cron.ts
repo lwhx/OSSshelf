@@ -71,7 +71,9 @@ app.post('/cron/trash-cleanup', async (c) => {
   const expiredDirectLinks = await db
     .update(files)
     .set({ directLinkToken: null, directLinkExpiresAt: null })
-    .where(and(isNotNull(files.directLinkToken), isNotNull(files.directLinkExpiresAt), lt(files.directLinkExpiresAt, now)))
+    .where(
+      and(isNotNull(files.directLinkToken), isNotNull(files.directLinkExpiresAt), lt(files.directLinkExpiresAt, now))
+    )
     .returning({ id: files.id });
 
   console.log(

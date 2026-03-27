@@ -8,7 +8,18 @@
  * - 文本/代码预览（带语法高亮）
  * - Markdown 渲染预览（带代码高亮、表格样式、架构图支持）
  * - Office文档预览（Word/Excel本地渲染，保留样式）
+ * - EPUB电子书预览
+ * - 字体文件预览
+ * - ZIP压缩包内容列表预览
+ * - CSV表格预览
+ * - PowerPoint幻灯片预览
  * - 预览信息展示
+ *
+ * ============================================================================
+ * 【重要提醒】修改此文件后必须同步更新：
+ *   - apps/web/src/components/share/ShareFilePreview.tsx  # 分享预览组件
+ *   - packages/shared/src/constants/previewTypes.ts      # 预览类型配置
+ * ============================================================================
  */
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
@@ -20,6 +31,8 @@ import rehypeHighlight from 'rehype-highlight';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import hljs from 'highlight.js';
+import Papa from 'papaparse';
+import JSZip from 'jszip';
 import {
   X,
   Download,
@@ -33,6 +46,11 @@ import {
   Maximize2,
   Minimize2,
   RotateCcw,
+  Type,
+  ChevronLeft,
+  ChevronRight,
+  Folder,
+  File,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
@@ -386,6 +404,20 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [zoomLevel, setZoomLevel] = useState(100);
   const [windowSize, setWindowSize] = useState<WindowSize>('medium');
 
+  const [csvData, setCsvData] = useState<string[][] | null>(null);
+  const [csvLoading, setCsvLoading] = useState(false);
+  const [zipContents, setZipContents] = useState<{ name: string; size: number; isDir: boolean }[]>([]);
+  const [zipLoading, setZipLoading] = useState(false);
+  const [fontPreview, setFontPreview] = useState<{ name: string; preview: string } | null>(null);
+  const [fontLoading, setFontLoading] = useState(false);
+  const [epubBook, setEpubBook] = useState<{ title: string; chapters: { href: string; label: string }[] } | null>(null);
+  const [epubContent, setEpubContent] = useState<string>('');
+  const [epubLoading, setEpubLoading] = useState(false);
+  const [epubCurrentChapter, setEpubCurrentChapter] = useState(0);
+  const [pptSlides, setPptSlides] = useState<{ content: string }[]>([]);
+  const [pptCurrentSlide, setPptCurrentSlide] = useState(0);
+  const [pptLoading, setPptLoading] = useState(false);
+
   const canPreview = isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
   const isVideo = file.mimeType?.startsWith('video/');
@@ -393,6 +425,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isPdf = file.mimeType === 'application/pdf';
   const isMarkdown = file.mimeType === 'text/markdown' || file.name.endsWith('.md');
   const isPlainText = file.mimeType === 'text/plain' || file.name.endsWith('.txt');
+  const isCsv = file.mimeType === 'text/csv' || file.name.endsWith('.csv');
   const isText =
     file.mimeType?.startsWith('text/') ||
     file.mimeType === 'application/json' ||
@@ -408,7 +441,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     file.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
     file.mimeType === 'application/vnd.ms-powerpoint';
   const isOffice = isWord || isExcel || isPpt;
-  const isCode = isText && !isMarkdown && !isPlainText && isCodeFile(file.name);
+  const isCode = isText && !isMarkdown && !isPlainText && !isCsv && isCodeFile(file.name);
+  const isEpub = file.mimeType === 'application/epub+zip' || file.name.endsWith('.epub');
+  const isFont =
+    file.mimeType?.startsWith('font/') ||
+    ['.ttf', '.otf', '.woff', '.woff2'].some((ext) => file.name.toLowerCase().endsWith(ext));
+  const isZip = file.mimeType === 'application/zip' || file.name.endsWith('.zip');
 
   const detectedLanguage = useMemo(() => {
     if (previewInfo?.language) return previewInfo.language;
@@ -429,6 +467,19 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setExcelHtml(null);
     setZoomLevel(100);
     setWindowSize('medium');
+    setCsvData(null);
+    setCsvLoading(false);
+    setZipContents([]);
+    setZipLoading(false);
+    setFontPreview(null);
+    setFontLoading(false);
+    setEpubBook(null);
+    setEpubContent('');
+    setEpubLoading(false);
+    setEpubCurrentChapter(0);
+    setPptSlides([]);
+    setPptCurrentSlide(0);
+    setPptLoading(false);
 
     previewApi
       .getInfo(file.id)
@@ -454,7 +505,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   }, [file.id, token]);
 
   useEffect(() => {
-    if ((!isText && !isMarkdown) || !canPreview || !resolvedUrl) return;
+    if ((!isText && !isMarkdown && !isCsv) || !canPreview || !resolvedUrl) return;
 
     previewApi
       .getRaw(file.id)
@@ -469,7 +520,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           .then((t) => setTextContent(t))
           .catch(() => setLoadError(true));
       });
-  }, [file.id, resolvedUrl, isText, isMarkdown, canPreview]);
+  }, [file.id, resolvedUrl, isText, isMarkdown, isCsv, canPreview]);
 
   const loadDocxPreview = useCallback(async () => {
     if (!isWord || !resolvedUrl || !docxContainerRef.current) {
@@ -574,6 +625,236 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     [excelWorkbook]
   );
 
+  const loadCsvPreview = useCallback(async () => {
+    if (!isCsv || !resolvedUrl) return;
+
+    setCsvLoading(true);
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
+      }
+      const text = await response.text();
+      const result = Papa.parse<string[]>(text, {
+        skipEmptyLines: true,
+      });
+      if (result.data) {
+        setCsvData(result.data);
+      }
+    } catch (err) {
+      console.error('CSV preview error:', err);
+      setLoadError(true);
+    } finally {
+      setCsvLoading(false);
+    }
+  }, [isCsv, resolvedUrl]);
+
+  const loadZipPreview = useCallback(async () => {
+    if (!isZip || !resolvedUrl) return;
+
+    setZipLoading(true);
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const contents: { name: string; size: number; isDir: boolean }[] = [];
+      zip.forEach((relativePath, zipEntry) => {
+        contents.push({
+          name: relativePath,
+          size: zipEntry.dir ? 0 : 0,
+          isDir: zipEntry.dir,
+        });
+      });
+      contents.sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      setZipContents(contents);
+    } catch (err) {
+      console.error('ZIP preview error:', err);
+      setLoadError(true);
+    } finally {
+      setZipLoading(false);
+    }
+  }, [isZip, resolvedUrl]);
+
+  const loadFontPreview = useCallback(async () => {
+    if (!isFont || !resolvedUrl) return;
+
+    setFontLoading(true);
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'ttf';
+      let format = 'truetype';
+      if (ext === 'woff') format = 'woff';
+      else if (ext === 'woff2') format = 'woff2';
+      else if (ext === 'otf') format = 'opentype';
+      const fontFace = new FontFace('PreviewFont', `url(data:font/${format};base64,${base64})`);
+      await fontFace.load();
+      document.fonts.add(fontFace);
+      setFontPreview({
+        name: file.name,
+        preview: 'PreviewFont',
+      });
+    } catch (err) {
+      console.error('Font preview error:', err);
+      setLoadError(true);
+    } finally {
+      setFontLoading(false);
+    }
+  }, [isFont, resolvedUrl, file.name]);
+
+  const loadEpubPreview = useCallback(async () => {
+    if (!isEpub || !resolvedUrl) return;
+
+    setEpubLoading(true);
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+
+      const containerXml = await zip.file('META-INF/container.xml')?.async('string');
+      if (!containerXml) {
+        throw new Error('无效的 EPUB 文件');
+      }
+
+      const rootfileMatch = containerXml.match(/full-path="([^"]+)"/);
+      if (!rootfileMatch || !rootfileMatch[1]) {
+        throw new Error('无法找到 EPUB 根文件');
+      }
+      const opfPath = rootfileMatch[1];
+      const opfFile = zip.file(opfPath);
+      const opfContent = opfFile ? await opfFile.async('string') : null;
+      if (!opfContent) {
+        throw new Error('无法读取 EPUB 内容');
+      }
+
+      const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
+      const title = titleMatch && titleMatch[1] ? titleMatch[1] : file.name;
+
+      const manifestMatches = opfContent.matchAll(
+        /<item[^>]*href="([^"]+)"[^>]*id="([^"]+)"[^>]*media-type="([^"]+)"[^>]*\/>/gi
+      );
+      const spineItemMatches = opfContent.matchAll(/<itemref[^>]*idref="([^"]+)"[^>]*\/>/gi);
+
+      const manifest: Record<string, { href: string; mediaType: string }> = {};
+      for (const match of manifestMatches) {
+        if (match[1] && match[2] && match[3]) {
+          manifest[match[2]] = { href: match[1], mediaType: match[3] };
+        }
+      }
+
+      const chapters: { href: string; label: string }[] = [];
+      const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+      for (const match of spineItemMatches) {
+        const idref = match[1];
+        if (idref && manifest[idref]) {
+          chapters.push({
+            href: opfDir + manifest[idref].href,
+            label: `第 ${chapters.length + 1} 章`,
+          });
+        }
+      }
+
+      setEpubBook({ title, chapters });
+
+      if (chapters.length > 0 && chapters[0]) {
+        const chapterFile = zip.file(chapters[0].href);
+        const chapterContent = chapterFile ? await chapterFile.async('string') : null;
+        if (chapterContent) {
+          setEpubContent(chapterContent);
+        }
+      }
+    } catch (err) {
+      console.error('EPUB preview error:', err);
+      setLoadError(true);
+    } finally {
+      setEpubLoading(false);
+    }
+  }, [isEpub, resolvedUrl, file.name]);
+
+  const loadEpubChapter = useCallback(
+    async (chapterIndex: number) => {
+      if (!epubBook || !resolvedUrl || chapterIndex < 0 || chapterIndex >= epubBook.chapters.length) return;
+
+      setEpubLoading(true);
+      try {
+        const response = await fetch(resolvedUrl);
+        if (!response.ok) {
+          throw new Error(`文件加载失败: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        const chapter = epubBook.chapters[chapterIndex];
+        if (chapter) {
+          const chapterFile = zip.file(chapter.href);
+          const chapterContent = chapterFile ? await chapterFile.async('string') : null;
+          if (chapterContent) {
+            setEpubContent(chapterContent);
+            setEpubCurrentChapter(chapterIndex);
+          }
+        }
+      } catch (err) {
+        console.error('EPUB chapter load error:', err);
+      } finally {
+        setEpubLoading(false);
+      }
+    },
+    [epubBook, resolvedUrl]
+  );
+
+  const loadPptPreview = useCallback(async () => {
+    if (!isPpt || !resolvedUrl) return;
+
+    setPptLoading(true);
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+
+      const slides: { content: string }[] = [];
+      let slideIndex = 1;
+      let slideFile = zip.file(`ppt/slides/slide${slideIndex}.xml`);
+      while (slideFile) {
+        const slideContent = await slideFile.async('string');
+        const textMatches = slideContent.matchAll(/<a:t>([^<]*)<\/a:t>/gi);
+        const texts: string[] = [];
+        for (const match of textMatches) {
+          const text = match[1];
+          if (text && text.trim()) {
+            texts.push(text.trim());
+          }
+        }
+        slides.push({
+          content: texts.join('\n'),
+        });
+        slideIndex++;
+        slideFile = zip.file(`ppt/slides/slide${slideIndex}.xml`);
+      }
+
+      setPptSlides(slides);
+    } catch (err) {
+      console.error('PPT preview error:', err);
+      setLoadError(true);
+    } finally {
+      setPptLoading(false);
+    }
+  }, [isPpt, resolvedUrl]);
+
   const handleZoomIn = useCallback(() => {
     setZoomLevel((prev) => Math.min(prev + 25, 200));
   }, []);
@@ -610,6 +891,36 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       loadExcelPreview();
     }
   }, [isExcel, resolvedUrl, loadExcelPreview]);
+
+  useEffect(() => {
+    if (isCsv && resolvedUrl) {
+      loadCsvPreview();
+    }
+  }, [isCsv, resolvedUrl, loadCsvPreview]);
+
+  useEffect(() => {
+    if (isZip && resolvedUrl) {
+      loadZipPreview();
+    }
+  }, [isZip, resolvedUrl, loadZipPreview]);
+
+  useEffect(() => {
+    if (isFont && resolvedUrl) {
+      loadFontPreview();
+    }
+  }, [isFont, resolvedUrl, loadFontPreview]);
+
+  useEffect(() => {
+    if (isEpub && resolvedUrl) {
+      loadEpubPreview();
+    }
+  }, [isEpub, resolvedUrl, loadEpubPreview]);
+
+  useEffect(() => {
+    if (isPpt && resolvedUrl) {
+      loadPptPreview();
+    }
+  }, [isPpt, resolvedUrl, loadPptPreview]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -655,7 +966,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   );
 
   const sizeConfig = WINDOW_SIZE_CONFIG[windowSize];
-  const showZoomControls = isText || isMarkdown || isExcel || isWord;
+  const showZoomControls = isText || isMarkdown || isExcel || isWord || isCsv || isFont || isEpub || isPpt;
   const showSheetTabs = isExcel && excelWorkbook && excelWorkbook.SheetNames.length > 1;
 
   const highlightedCode = useMemo(() => {
@@ -953,9 +1264,204 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   ) : null}
                 </>
               ) : isPpt ? (
-                renderOfficeFallback('PowerPoint 暂不支持在线预览')
+                <>
+                  {pptLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                      <div className="text-muted-foreground text-sm">正在加载幻灯片...</div>
+                    </div>
+                  )}
+                  {loadError ? (
+                    <div className="absolute inset-0 flex items-center justify-center z-10">
+                      {renderOfficeFallback('PowerPoint 加载失败')}
+                    </div>
+                  ) : pptSlides.length > 0 ? (
+                    <div className="w-full h-full flex flex-col bg-white dark:bg-gray-900">
+                      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                        <span className="text-sm text-muted-foreground">
+                          幻灯片 {pptCurrentSlide + 1} / {pptSlides.length}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setPptCurrentSlide((prev) => Math.max(0, prev - 1))}
+                            disabled={pptCurrentSlide <= 0}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setPptCurrentSlide((prev) => Math.min(pptSlides.length - 1, prev + 1))}
+                            disabled={pptCurrentSlide >= pptSlides.length - 1}
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-auto p-6" style={{ fontSize: `${zoomLevel}%` }}>
+                        <div className="prose dark:prose-invert max-w-none">
+                          <pre className="whitespace-pre-wrap text-sm">
+                            {pptSlides[pptCurrentSlide]?.content || '无内容'}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    renderOfficeFallback('PowerPoint 无内容或格式不支持')
+                  )}
+                </>
               ) : (
                 renderOfficeFallback()
+              )}
+            </div>
+          ) : isCsv ? (
+            <div className="w-full h-full flex flex-col relative">
+              {csvLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                  <div className="text-muted-foreground text-sm">正在加载表格...</div>
+                </div>
+              )}
+              {csvData ? (
+                <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4">
+                  <table className="w-full border-collapse text-sm" style={{ fontSize: `${zoomLevel}%` }}>
+                    <tbody>
+                      {csvData.map((row, rowIndex) => (
+                        <tr key={rowIndex} className={rowIndex === 0 ? 'bg-muted/50 font-medium' : ''}>
+                          {row.map((cell, cellIndex) => {
+                            const Tag = rowIndex === 0 ? 'th' : 'td';
+                            return (
+                              <Tag key={cellIndex} className="border border-border px-3 py-2 text-left">
+                                {cell}
+                              </Tag>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                </div>
+              )}
+            </div>
+          ) : isZip ? (
+            <div className="w-full h-full flex flex-col relative">
+              {zipLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                  <div className="text-muted-foreground text-sm">正在读取压缩包...</div>
+                </div>
+              )}
+              {zipContents.length > 0 ? (
+                <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-4">
+                  <div className="text-sm mb-4 text-muted-foreground">共 {zipContents.length} 个文件/文件夹</div>
+                  <div className="space-y-1">
+                    {zipContents.map((item, index) => (
+                      <div key={index} className="flex items-center gap-2 px-3 py-2 rounded hover:bg-muted/50">
+                        {item.isDir ? (
+                          <Folder className="h-4 w-4 text-amber-500" />
+                        ) : (
+                          <File className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="flex-1 truncate text-sm">{item.name}</span>
+                        {!item.isDir && <span className="text-xs text-muted-foreground">{formatBytes(item.size)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                </div>
+              )}
+            </div>
+          ) : isFont ? (
+            <div className="w-full h-full flex flex-col relative">
+              {fontLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                  <div className="text-muted-foreground text-sm">正在加载字体...</div>
+                </div>
+              )}
+              {fontPreview ? (
+                <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900 p-6">
+                  <div className="text-center mb-8">
+                    <Type className="h-12 w-12 mx-auto mb-4 text-primary" />
+                    <h3 className="text-lg font-medium">{fontPreview.name}</h3>
+                  </div>
+                  <div className="space-y-6" style={{ fontFamily: fontPreview.preview, fontSize: `${zoomLevel}%` }}>
+                    <div className="text-center">
+                      <p className="text-4xl mb-2">AaBbCcDdEeFfGg</p>
+                      <p className="text-2xl mb-2">abcdefghijklmnopqrstuvwxyz</p>
+                      <p className="text-2xl mb-2">ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
+                      <p className="text-2xl mb-2">0123456789</p>
+                      <p className="text-xl mt-6">
+                        敏捷的棕色狐狸跳过懒狗。The quick brown fox jumps over the lazy dog.
+                      </p>
+                    </div>
+                    <div className="border-t pt-6">
+                      <p className="text-lg leading-relaxed">
+                        这是一段预览文本，用于展示字体的效果。字体预览可以帮助您了解字体在不同大小和样式下的表现。 This
+                        is a preview text to demonstrate the font effect. Font preview helps you understand how the font
+                        looks at different sizes and styles.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                </div>
+              )}
+            </div>
+          ) : isEpub ? (
+            <div className="w-full h-full flex flex-col relative">
+              {epubLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                  <div className="text-muted-foreground text-sm">正在加载电子书...</div>
+                </div>
+              )}
+              {epubBook ? (
+                <div className="w-full h-full flex flex-col bg-white dark:bg-gray-900">
+                  <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                    <span className="text-sm font-medium truncate">{epubBook.title}</span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => loadEpubChapter(epubCurrentChapter - 1)}
+                        disabled={epubCurrentChapter <= 0}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {epubCurrentChapter + 1} / {epubBook.chapters.length}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => loadEpubChapter(epubCurrentChapter + 1)}
+                        disabled={epubCurrentChapter >= epubBook.chapters.length - 1}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div
+                    className="flex-1 overflow-auto p-6 prose dark:prose-invert max-w-none"
+                    style={{ fontSize: `${zoomLevel}%` }}
+                    dangerouslySetInnerHTML={{ __html: epubContent }}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                </div>
               )}
             </div>
           ) : null}

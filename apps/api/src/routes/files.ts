@@ -46,7 +46,9 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * preview / download 路由位于 authMiddleware 挂载点之前，需手动解析 token。
  * 支持 Authorization: Bearer <token> 和 ?token=<token> 两种方式。
  */
-async function resolveUserFromRequest(c: Parameters<typeof app.get>[1] extends (...args: infer A) => any ? A[0] : never): Promise<string | undefined> {
+async function resolveUserFromRequest(
+  c: Parameters<typeof app.get>[1] extends (...args: infer A) => any ? A[0] : never
+): Promise<string | undefined> {
   const jwtSecret = (c.env as Env).JWT_SECRET;
   const { verifyJWT } = await import('../lib/crypto');
 
@@ -55,7 +57,9 @@ async function resolveUserFromRequest(c: Parameters<typeof app.get>[1] extends (
     try {
       const payload = await verifyJWT(authHeader.slice(7), jwtSecret);
       if (payload?.userId) return payload.userId as string;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   const queryToken = c.req.query('token');
@@ -63,7 +67,9 @@ async function resolveUserFromRequest(c: Parameters<typeof app.get>[1] extends (
     try {
       const payload = await verifyJWT(queryToken, jwtSecret);
       if (payload?.userId) return payload.userId as string;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   return undefined;
@@ -320,8 +326,7 @@ app.post('/upload', async (c) => {
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, uploadFile.size);
-    if (quotaErr)
-      throwAppError('STORAGE_EXCEEDED', quotaErr);
+    if (quotaErr) throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -570,8 +575,7 @@ app.post('/trash/:id/restore', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
-  if (!file)
-    throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
+  if (!file) throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
   await db.update(files).set({ deletedAt: null, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   return c.json({ success: true, data: { message: '已恢复' } });
 });
@@ -656,8 +660,7 @@ app.post('/', async (c) => {
       )
     )
     .get();
-  if (existing)
-    throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
+  if (existing) throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
 
   let effectiveBucketId: string | null = null;
   if (requestedBucketId) {
@@ -757,8 +760,7 @@ app.post('/create', async (c) => {
       )
     )
     .get();
-  if (existing)
-    throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
+  if (existing) throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
   const effectiveBucketId = bucketConfig?.id ?? requestedBucketId ?? null;
@@ -779,8 +781,7 @@ app.post('/create', async (c) => {
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
-    if (quotaErr)
-      throwAppError('STORAGE_EXCEEDED', quotaErr);
+    if (quotaErr) throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -1014,8 +1015,7 @@ app.put('/:id/settings', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
-  if (!file.isFolder)
-    throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
+  if (!file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
 
   const { allowedMimeTypes } = result.data;
   const now = new Date().toISOString();
@@ -1059,8 +1059,7 @@ app.post('/:id/move', async (c) => {
   if (file.isFolder && targetParentId) {
     let checkId: string | null = targetParentId;
     while (checkId) {
-      if (checkId === fileId)
-        throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
+      if (checkId === fileId) throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
       const parent = await db.select().from(files).where(eq(files.id, checkId)).get();
       checkId = parent?.parentId ?? null;
     }
@@ -1146,9 +1145,7 @@ async function deleteFileFromStorage(
     .all();
 
   const versionKeysToDelete = new Set(
-    versions
-      .filter((v) => v.r2Key !== file.r2Key && v.refCount <= 1)
-      .map((v) => v.r2Key)
+    versions.filter((v) => v.r2Key !== file.r2Key && v.refCount <= 1).map((v) => v.r2Key)
   );
 
   // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）

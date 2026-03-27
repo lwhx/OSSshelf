@@ -471,7 +471,8 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   // 关键修复：先标准化路径，去除尾部斜杠，确保路径解析正确
   const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
   const fileName = normalizedPath.split('/').pop() || 'untitled';
-  const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
+  const parentPath =
+    normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
   const encKeyP = getEncryptionKey(c.env);
