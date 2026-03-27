@@ -66,7 +66,7 @@ import { cn } from '@/utils';
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
 interface PreviewInfo {
   id: string;
@@ -1072,10 +1072,16 @@ export function ShareFilePreview({
     }
   }, [isPpt, getPreviewUrl]);
 
-  // ref callback：仅负责记录容器 DOM，不触发加载
+  // ref callback：容器挂载时检查是否有待加载任务
   const pptxContainerCallbackRef = useCallback((node: HTMLDivElement | null) => {
     (pptxContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-  }, []);
+    // 容器挂载后，检查是否有待加载的PPT
+    if (node && pptxLoadPendingRef.current) {
+      pptxLoadPendingRef.current = false;
+      // 使用 setTimeout 确保 DOM 完全渲染
+      setTimeout(() => loadPptPreview(), 0);
+    }
+  }, [loadPptPreview]);
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel((prev) => Math.min(prev + 25, 200));
@@ -1151,14 +1157,16 @@ export function ShareFilePreview({
   }, [isExcel, loadExcelPreview, officeUseOnlineViewer]);
 
   // PPTX 本地预览：等容器挂载就绪后触发
+  // 使用 pptxLoadPendingRef 标记待加载状态，确保容器挂载后再加载
   useEffect(() => {
     if (!isPpt || pptUseOnlineViewer) return;
-    const id = requestAnimationFrame(() => {
-      if (pptxContainerRef.current) {
-        loadPptPreview();
-      }
-    });
-    return () => cancelAnimationFrame(id);
+    // 标记有待加载任务
+    pptxLoadPendingRef.current = true;
+    // 尝试立即加载（如果容器已挂载）
+    if (pptxContainerRef.current) {
+      loadPptPreview();
+      pptxLoadPendingRef.current = false;
+    }
   }, [isPpt, pptUseOnlineViewer, loadPptPreview]);
 
   useEffect(() => {

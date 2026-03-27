@@ -383,21 +383,11 @@ export default function Files() {
         const result = await getPresignedDownloadUrl(file.id);
         const { url, fileName, useProxy } = result;
 
-        if (useProxy) {
-          // proxy URL 含 token query param，fetch 后强制 blob 下载
-          const resp = await fetch(url);
-          if (!resp.ok) throw new Error('download failed');
-          const blob = await resp.blob();
-          forceBlobDownload(blob, fileName || file.name);
-        } else {
-          // presigned URL：直接用 <a download>（S3/R2 会设置正确 Content-Disposition）
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName || file.name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-        }
+        // 统一使用 fetch + blob 方式下载，避免跨域时 <a download> 属性无效导致浏览器直接打开
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('download failed');
+        const blob = await resp.blob();
+        forceBlobDownload(blob, fileName || file.name);
       } catch {
         try {
           const downloadToken = token || useAuthStore.getState().token;
@@ -405,15 +395,7 @@ export default function Files() {
           const resp = await fetch(downloadUrl);
           if (!resp.ok) throw new Error('download failed');
           const blob = await resp.blob();
-          const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
-          const blobUrl = URL.createObjectURL(forceBlob);
-          const a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = file.name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+          forceBlobDownload(blob, file.name);
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }
