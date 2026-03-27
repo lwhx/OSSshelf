@@ -42,17 +42,22 @@ app.use('*', prettyJSON());
 app.use(
   '*',
   cors({
-    origin: (origin) => {
-      const allowedOrigins = [
-        'https://ossshelf.neutronx.uk',
+    origin: (origin, c) => {
+      const corsOrigins = c.env.CORS_ORIGINS || '';
+      const allowedOrigins = corsOrigins
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+      const defaultOrigins = [
         'http://localhost:3000',
         'http://localhost:5173',
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
       ];
-      if (allowedOrigins.includes(origin)) return origin;
-      if (origin.endsWith('.neutronx.uk')) return origin;
-      return allowedOrigins[0];
+      const allOrigins = [...new Set([...defaultOrigins, ...allowedOrigins])];
+      if (allOrigins.includes(origin)) return origin;
+      if (allowedOrigins.length > 0) return allowedOrigins[0];
+      return defaultOrigins[0];
     },
     allowMethods: [
       'GET',

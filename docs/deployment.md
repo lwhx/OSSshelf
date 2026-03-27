@@ -170,6 +170,7 @@ wrangler r2 bucket create ossshelf-files
 | `CLOUDFLARE_D1_DATABASE_ID` | D1 数据库 ID | Step 2 创建时获得 |
 | `CLOUDFLARE_KV_NAMESPACE_ID` | KV 命名空间 ID | Step 2 创建时获得 |
 | `JWT_SECRET` | JWT 签名密钥 | 生成 32+ 字符随机字符串 |
+| `CORS_ORIGINS` | CORS 允许域名 | 前端域名，多个用逗号分隔 |
 | `TRASH_RETENTION_DAYS` | 回收站保留天数 | 可选，默认 30 |
 
 #### 获取 Cloudflare API Token
@@ -264,6 +265,7 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | `CLOUDFLARE_D1_DATABASE_ID` | ✅ | D1 数据库绑定 |
 | `CLOUDFLARE_KV_NAMESPACE_ID` | ✅ | KV 命名空间绑定 |
 | `JWT_SECRET` | ✅ | JWT 签名密钥 |
+| `CORS_ORIGINS` | ✅ | CORS 允许域名 |
 
 ### 可选 Secrets
 
@@ -300,6 +302,7 @@ id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"
 
 [vars]
 JWT_SECRET = "${{ secrets.JWT_SECRET }}"
+CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
 TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 ```
 
@@ -626,31 +629,28 @@ zone_name = "your-domain.com"
 
 ### CORS 配置
 
-> **⚠️ 重要警告 - 部署前必须修改！**
+> **⚠️ 重要 - 部署前必须配置！**
 > 
-> 以下 CORS 配置中的 `origin` 域名已被硬编码为作者的前端域名。
-> **部署前请务必将其修改为您自己的前端域名，否则前端将无法正常访问 API，导致跨域错误！**
-> 
-> 修改位置：`apps/api/src/index.ts`
+> CORS 允许域名通过环境变量 `CORS_ORIGINS` 配置，**部署前请务必将其设置为您的前端域名，否则前端将无法正常访问 API！**
 
-如果前端和 API 使用不同域名，需要配置 CORS。在 `apps/api/src/index.ts` 中已默认配置：
+如果前端和 API 使用不同域名，需要配置 CORS。通过环境变量 `CORS_ORIGINS` 设置：
 
-```typescript
-app.use('*', cors({
-  // ⚠️ 部署时请将以下域名修改为您自己的前端域名！
-  // 示例：['https://your-project.pages.dev', 'https://your-custom-domain.com']
-  origin: ['https://your-frontend.pages.dev', 'https://your-domain.com'],
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-}));
+**配置方式**：
+
+1. **GitHub Secrets**（推荐）：添加 `CORS_ORIGINS` Secret
+2. **wrangler.toml**：在 `[vars]` 中添加 `CORS_ORIGINS` 变量
+
+**配置示例**：
+
+```toml
+# wrangler.toml
+[vars]
+CORS_ORIGINS = "https://your-frontend.pages.dev,https://your-custom-domain.com"
 ```
 
-**常见跨域错误示例**：
-- `Access to XMLHttpRequest at 'xxx' from origin 'xxx' has been blocked by CORS policy`
-- `Response to preflight request doesn't pass access control check`
+**多个域名**：用逗号分隔，如 `https://a.com,https://b.com`
 
-**解决方法**：将 `origin` 数组中的域名替换为您实际部署的前端域名。
+**本地开发**：默认已允许 `localhost:3000`、`localhost:5173` 等本地开发地址，无需额外配置。
 
 ---
 
@@ -990,6 +990,7 @@ pnpm typecheck        # 类型检查
   - [ ] `CLOUDFLARE_D1_DATABASE_ID`
   - [ ] `CLOUDFLARE_KV_NAMESPACE_ID`
   - [ ] `JWT_SECRET`
+  - [ ] `CORS_ORIGINS`
   - [ ] `ALERT_TG_BOT_TOKEN`（可选）
   - [ ] `ALERT_TG_CHAT_ID`（可选）
 - [ ] 运行数据库迁移（包含 v3.3.0 版本控制表）

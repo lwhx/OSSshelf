@@ -223,6 +223,7 @@ id = "你的KV命名空间ID"  # ← 替换这里
 [vars]
 ENVIRONMENT = "production"
 JWT_SECRET = "生成一个强随机字符串"  # ← 替换这里
+CORS_ORIGINS = "https://your-frontend.pages.dev"  # ← 替换为你的前端域名
 
 [triggers]
 crons = ["0 3 * * *"]  # 每天凌晨3点清理
@@ -259,6 +260,7 @@ curl https://your-api.workers.dev/api/auth/registration-config
 |--------|------|------|
 | `JWT_SECRET` | ✅ | JWT 签名密钥，建议 32+ 字符随机字符串 |
 | `ENCRYPTION_KEY` | ✅ | 存储桶凭证加密密钥，32 字节 |
+| `CORS_ORIGINS` | ✅ | CORS 允许域名，多个用逗号分隔 |
 
 ---
 
