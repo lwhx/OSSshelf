@@ -1225,6 +1225,9 @@ export default function Files() {
             setPreviewFile(null);
             setShareFileId(id);
           }}
+          onEdit={() => {
+            // 编辑功能已集成在 FilePreview 内部
+          }}
         />
       )}
 

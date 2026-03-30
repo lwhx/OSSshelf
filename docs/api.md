@@ -42,7 +42,38 @@ https://your-api.workers.dev/api
 ### 认证方式
 
 - **Bearer Token (JWT)**: 大多数 API 使用此方式
+- **API Key**: 程序化访问推荐使用此方式（v4.0 新增）
 - **Basic Auth**: WebDAV 接口使用此方式
+
+#### JWT Token 认证
+
+```http
+Authorization: Bearer <jwt-token>
+```
+
+#### API Key 认证（v4.0 新增）
+
+API Key 适用于脚本、自动化工具、第三方集成等场景。
+
+**方式一：X-API-Key Header**
+
+```http
+X-API-Key: osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**方式二：Authorization Header**
+
+```http
+Authorization: ApiKey osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**API Key 格式**：`osk_live_` 前缀 + 64 位十六进制字符
+
+**API Key 特点**：
+- 仅在创建时显示一次，请妥善保存
+- 支持 Scope 权限控制
+- 支持过期时间设置
+- 可随时禁用或删除
 
 ### 响应格式
 
