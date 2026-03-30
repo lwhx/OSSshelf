@@ -266,10 +266,8 @@ app.post('/:fileId/versions/:version/restore', async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  const sizeDelta = targetVersion.size - (file.size ?? 0);
-  if (sizeDelta !== 0) {
-    await updateUserStorage(db, file.userId, sizeDelta);
-  }
+  // 恢复版本不更新存储空间，因为版本的存储对象已经存在
+  // 文件的 size 字段仅表示当前版本的大小，不反映实际存储占用
 
   await db
     .update(fileVersions)
@@ -330,6 +328,7 @@ app.delete('/:fileId/versions/:version', async (c) => {
 
   const isLastRef = sharedRefs.length <= 1 && version.r2Key !== file.r2Key;
 
+  // 删除版本记录
   await db.delete(fileVersions).where(eq(fileVersions.id, version.id));
 
   // 若是最后一个引用且与主文件 r2Key 不同，清理物理对象
@@ -343,6 +342,8 @@ app.delete('/:fileId/versions/:version', async (c) => {
     } else if (c.env.FILES) {
       await (c.env.FILES as R2Bucket).delete(version.r2Key).catch(() => {});
     }
+    // 释放存储空间
+    await updateUserStorage(db, userId!, -version.size);
   }
 
   return c.json({

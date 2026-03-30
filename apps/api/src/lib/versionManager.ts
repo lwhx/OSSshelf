@@ -21,6 +21,7 @@ import type { Env } from '../types/env';
 import { s3Delete } from './s3client';
 import { resolveBucketConfig } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
+import { updateUserStorage } from './bucketResolver';
 import { isEditableFile } from '@osshelf/shared';
 
 type FileRecord = typeof files.$inferSelect;
@@ -235,6 +236,10 @@ export async function pruneExcessVersions(
     }
   }
 
+  if (result.freedBytes > 0 && file.userId) {
+    await updateUserStorage(db, file.userId, -result.freedBytes);
+  }
+
   return result;
 }
 
@@ -282,6 +287,8 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
       .where(and(eq(fileVersions.fileId, file.id), lt(fileVersions.createdAt, cutoff)))
       .all();
 
+    let fileFreedBytes = 0;
+
     for (const version of expiredVersions) {
       if (version.version === (file.currentVersion ?? 1)) {
         continue;
@@ -301,7 +308,7 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
 
           if (sharedRefs.length === 0) {
             await deleteStorageObject(db, env, file as any, version.r2Key, encKey);
-            result.freedBytes += version.size;
+            fileFreedBytes += version.size;
           }
         }
 
@@ -310,6 +317,11 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
         const msg = error instanceof Error ? error.message : String(error);
         result.errors.push(`版本 ${version.version} 清理失败: ${msg}`);
       }
+    }
+
+    if (fileFreedBytes > 0 && file.userId) {
+      await updateUserStorage(db, file.userId, -fileFreedBytes);
+      result.freedBytes += fileFreedBytes;
     }
   }
 

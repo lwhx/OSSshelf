@@ -19,7 +19,7 @@ import { z } from 'zod';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const VALID_SCOPES = ['files:read', 'files:write', 'shares:read', 'shares:write', 'buckets:read', 'admin:read'];
+const VALID_SCOPES = ['files:read', 'files:write', 'shares:read', 'shares:write', 'buckets:read', 'api_keys:read'];
 
 const createApiKeySchema = z.object({
   name: z.string().min(1, '名称不能为空').max(100, '名称过长'),
@@ -89,9 +89,9 @@ app.post('/', async (c) => {
   }
 
   const user = c.get('user');
-  if (scopes.includes('admin:read') && user?.role !== 'admin') {
+  if (scopes.includes('api_keys:read') && user?.role !== 'admin') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '只有管理员可以授予 admin:read 权限' } },
+      { success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '只有管理员可以授予 api_keys:read 权限' } },
       403
     );
   }
@@ -203,9 +203,9 @@ app.patch('/:id', async (c) => {
     }
 
     const user = c.get('user');
-    if (scopes.includes('admin:read') && user?.role !== 'admin') {
+    if (scopes.includes('api_keys:read') && user?.role !== 'admin') {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '只有管理员可以授予 admin:read 权限' } },
+        { success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '只有管理员可以授予 api_keys:read 权限' } },
         403
       );
     }

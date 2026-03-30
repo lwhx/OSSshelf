@@ -31,6 +31,47 @@ const updateNoteSchema = z.object({
 
 app.use('/*', authMiddleware);
 
+// 注意：mentions 路由必须在 /:fileId 路由之前，否则会被错误匹配
+app.get('/mentions/unread', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const unreadMentions = await db
+    .select({
+      id: noteMentions.id,
+      noteId: noteMentions.noteId,
+      createdAt: noteMentions.createdAt,
+    })
+    .from(noteMentions)
+    .where(and(eq(noteMentions.userId, userId), eq(noteMentions.isRead, false)))
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(50)
+    .all();
+
+  return c.json({
+    success: true,
+    data: unreadMentions,
+  });
+});
+
+app.put('/mentions/:mentionId/read', async (c) => {
+  const userId = c.get('userId')!;
+  const mentionId = c.req.param('mentionId');
+  const db = getDb(c.env.DB);
+
+  const mention = await db
+    .select()
+    .from(noteMentions)
+    .where(and(eq(noteMentions.id, mentionId), eq(noteMentions.userId, userId)))
+    .get();
+
+  if (!mention) throwAppError('MENTION_NOT_FOUND', '提及不存在');
+
+  await db.update(noteMentions).set({ isRead: true }).where(eq(noteMentions.id, mentionId));
+
+  return c.json({ success: true, data: { message: '已标记为已读' } });
+});
+
 app.get('/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
@@ -274,17 +315,32 @@ app.delete('/:fileId/:noteId', async (c) => {
 
   const now = new Date().toISOString();
 
+  // 软删除此笔记及其所有子笔记（回复）
+  await db
+    .update(fileNotes)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(and(eq(fileNotes.parentId, noteId), isNull(fileNotes.deletedAt)));
+
   await db.update(fileNotes).set({ deletedAt: now, updatedAt: now }).where(eq(fileNotes.id, noteId));
+
+  // 计算删除的笔记数量（包括子笔记）
+  const childCount = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(fileNotes)
+    .where(and(eq(fileNotes.parentId, noteId), eq(fileNotes.deletedAt, now)))
+    .get();
+
+  const deletedCount = 1 + (childCount?.count ?? 0);
 
   await db
     .update(files)
     .set({
-      noteCount: sql`MAX(0, ${files.noteCount} - 1)`,
+      noteCount: sql`MAX(0, ${files.noteCount} - ${deletedCount})`,
       updatedAt: now,
     })
     .where(eq(files.id, fileId));
 
-  return c.json({ success: true, data: { message: '笔记已删除' } });
+  return c.json({ success: true, data: { message: '笔记已删除', deletedCount } });
 });
 
 app.post('/:fileId/:noteId/pin', async (c) => {
@@ -357,46 +413,6 @@ app.get('/:fileId/:noteId/history', async (c) => {
       history,
     },
   });
-});
-
-app.get('/mentions/unread', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const unreadMentions = await db
-    .select({
-      id: noteMentions.id,
-      noteId: noteMentions.noteId,
-      createdAt: noteMentions.createdAt,
-    })
-    .from(noteMentions)
-    .where(and(eq(noteMentions.userId, userId), eq(noteMentions.isRead, false)))
-    .orderBy(desc(noteMentions.createdAt))
-    .limit(50)
-    .all();
-
-  return c.json({
-    success: true,
-    data: unreadMentions,
-  });
-});
-
-app.put('/mentions/:mentionId/read', async (c) => {
-  const userId = c.get('userId')!;
-  const mentionId = c.req.param('mentionId');
-  const db = getDb(c.env.DB);
-
-  const mention = await db
-    .select()
-    .from(noteMentions)
-    .where(and(eq(noteMentions.id, mentionId), eq(noteMentions.userId, userId)))
-    .get();
-
-  if (!mention) throwAppError('MENTION_NOT_FOUND', '提及不存在');
-
-  await db.update(noteMentions).set({ isRead: true }).where(eq(noteMentions.id, mentionId));
-
-  return c.json({ success: true, data: { message: '已标记为已读' } });
 });
 
 function renderMarkdown(content: string): string {

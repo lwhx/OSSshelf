@@ -1388,15 +1388,16 @@ async function deleteFileFromStorage(
   encKey: string,
   file: typeof files.$inferSelect
 ) {
-  // ── 收集版本独有的 r2Key（与主文件不同且 refCount <= 1）
+  // ── 收集所有版本的 r2Key（排除与主文件相同的）
   const versions = await db
-    .select({ r2Key: fileVersions.r2Key, refCount: fileVersions.refCount })
+    .select({ r2Key: fileVersions.r2Key })
     .from(fileVersions)
     .where(eq(fileVersions.fileId, file.id))
     .all();
 
+  // 收集所有需要删除的版本 r2Key（去重后）
   const versionKeysToDelete = new Set(
-    versions.filter((v) => v.r2Key !== file.r2Key && v.refCount <= 1).map((v) => v.r2Key)
+    versions.filter((v) => v.r2Key !== file.r2Key).map((v) => v.r2Key)
   );
 
   // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）
@@ -1415,6 +1416,8 @@ async function deleteFileFromStorage(
           await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey));
         }
       }
+      // 删除所有版本记录
+      await db.delete(fileVersions).where(eq(fileVersions.fileId, file.id));
       await updateBucketStats(db, file.bucketId, -file.size, -1);
       return;
     }
@@ -1422,21 +1425,28 @@ async function deleteFileFromStorage(
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (bucketConfig) {
+    // 删除主文件
     try {
       await s3Delete(bucketConfig, file.r2Key);
     } catch (e) {
       console.error(`S3 delete failed for ${file.r2Key}:`, e);
     }
+    // 删除所有版本存储对象
     for (const vKey of versionKeysToDelete) {
       await s3Delete(bucketConfig, vKey).catch((e) => console.error(`S3 version delete failed ${vKey}:`, e));
     }
     await updateBucketStats(db, bucketConfig.id, -file.size, -1);
   } else if (env.FILES) {
+    // 删除主文件
     await env.FILES.delete(file.r2Key);
+    // 删除所有版本存储对象
     for (const vKey of versionKeysToDelete) {
       await env.FILES.delete(vKey).catch(() => {});
     }
   }
+
+  // 删除所有版本记录
+  await db.delete(fileVersions).where(eq(fileVersions.fileId, file.id));
 }
 
 export default app;
