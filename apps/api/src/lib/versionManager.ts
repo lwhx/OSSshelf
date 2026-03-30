@@ -49,6 +49,8 @@ export interface PruneResult {
  * 在文件内容变更前调用，保存当前版本的快照。
  * 如果 hash 相同（内容未变），则跳过创建。
  *
+ * 重要：此函数应在内容更新前调用，保存的是当前（旧）内容。
+ *
  * @param db - Drizzle DB 实例
  * @param env - 环境变量
  * @param file - 文件记录
@@ -102,39 +104,41 @@ export async function createVersionSnapshot(
     };
   }
 
-  if (existingVersions.length >= maxVersions) {
-    await pruneExcessVersions(db, env, file.id, maxVersions);
-  }
-
-  const newVersion = currentVersion + 1;
+  const snapshotVersion = currentVersion;
   const versionId = crypto.randomUUID();
   const now = new Date().toISOString();
 
   await db.insert(fileVersions).values({
     id: versionId,
     fileId: file.id,
-    version: newVersion,
+    version: snapshotVersion,
     r2Key: file.r2Key,
     size: file.size,
     mimeType: file.mimeType,
     hash: file.hash,
     refCount: 1,
-    changeSummary: options.changeSummary ?? `版本 ${newVersion}`,
+    changeSummary: options.changeSummary ?? `版本 ${snapshotVersion} 快照`,
     createdBy: options.createdBy,
     createdAt: now,
   });
 
+  const newFileVersion = currentVersion + 1;
   await db
     .update(files)
     .set({
-      currentVersion: newVersion,
+      currentVersion: newFileVersion,
       updatedAt: now,
     })
     .where(eq(files.id, file.id));
 
+  const totalVersions = existingVersions.length + 1;
+  if (totalVersions > maxVersions) {
+    await pruneExcessVersions(db, env, file.id, maxVersions);
+  }
+
   return {
     versionId,
-    version: newVersion,
+    version: snapshotVersion,
     created: true,
     skipped: false,
   };

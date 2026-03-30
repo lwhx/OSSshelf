@@ -13,9 +13,20 @@ interface NoteCardProps {
   onDelete: () => void;
   onReply: () => void;
   onTogglePin: () => void;
+  onDeleteReply?: (replyId: string) => void;
+  currentUserId?: string;
 }
 
-const NoteCard: React.FC<NoteCardProps> = ({ note, replies, onEdit, onDelete, onReply, onTogglePin }) => {
+const NoteCard: React.FC<NoteCardProps> = ({
+  note,
+  replies,
+  onEdit,
+  onDelete,
+  onReply,
+  onTogglePin,
+  onDeleteReply,
+  currentUserId,
+}) => {
   const [showReplies, setShowReplies] = useState(true);
   const [showActions, setShowActions] = useState(false);
 
@@ -112,35 +123,55 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, replies, onEdit, onDelete, on
       />
 
       {note.version > 1 && (
-        <div className="mt-2 text-xs text-gray-400">
-          已编辑 · 版本 {note.version}
-        </div>
+        <div className="mt-2 text-xs text-gray-400">已编辑 · 版本 {note.version}</div>
       )}
 
       {replies && replies.length > 0 && (
         <div className="mt-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setShowReplies(!showReplies)}
-            className="text-xs text-blue-500 hover:underline mb-2"
-          >
+          <button onClick={() => setShowReplies(!showReplies)} className="text-xs text-blue-500 hover:underline mb-2">
             {showReplies ? '隐藏' : '显示'} {replies.length} 条回复
           </button>
           {showReplies && (
             <div className="space-y-2">
-              {replies.map((reply) => (
-                <div key={reply.id} className="bg-gray-100 dark:bg-gray-700 rounded p-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-xs">
-                      {reply.user?.name || reply.user?.email?.split('@')[0] || '未知用户'}
-                    </span>
-                    <span className="text-xs text-gray-500">{formatDate(reply.createdAt)}</span>
+              {replies.map((reply) => {
+                const canDeleteReply = onDeleteReply && (currentUserId === reply.userId || currentUserId === note.userId);
+                return (
+                  <div key={reply.id} className="bg-gray-100 dark:bg-gray-700 rounded p-2 group relative">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-xs">
+                          {reply.user?.name || reply.user?.email?.split('@')[0] || '未知用户'}
+                        </span>
+                        <span className="text-xs text-gray-500">{formatDate(reply.createdAt)}</span>
+                      </div>
+                      {canDeleteReply && (
+                        <button
+                          onClick={() => {
+                            if (confirm('确定要删除这条回复吗？')) {
+                              onDeleteReply(reply.id);
+                            }
+                          }}
+                          className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="删除回复"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M6 18L18 6M6 6l12 12"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      className="mt-1 text-xs text-gray-600 dark:text-gray-400"
+                      dangerouslySetInnerHTML={{ __html: reply.contentHtml || reply.content }}
+                    />
                   </div>
-                  <div
-                    className="mt-1 text-xs text-gray-600 dark:text-gray-400"
-                    dangerouslySetInnerHTML={{ __html: reply.contentHtml || reply.content }}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

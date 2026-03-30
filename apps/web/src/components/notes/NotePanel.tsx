@@ -14,6 +14,7 @@ import { useToast } from '../ui/useToast';
 import NoteEditor from './NoteEditor';
 import NoteCard from './NoteCard';
 import { notesApi, type FileNote } from '@/services/api';
+import { useAuthStore } from '@/stores/auth';
 
 interface NotePanelProps {
   fileId: string;
@@ -28,6 +29,8 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
   const [editingNote, setEditingNote] = useState<FileNote | null>(null);
   const [replyTo, setReplyTo] = useState<FileNote | null>(null);
   const { toast } = useToast();
+  const { user } = useAuthStore();
+  const currentUserId = user?.id;
 
   const fetchNotes = useCallback(async () => {
     if (!fileId) return;
@@ -94,6 +97,19 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
     } catch (error) {
       console.error('Failed to toggle pin:', error);
       toast({ title: '操作失败', variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteReply = async (replyId: string) => {
+    try {
+      const res = await notesApi.delete(fileId, replyId);
+      if (res.data.success) {
+        toast({ title: '回复已删除' });
+        fetchNotes();
+      }
+    } catch (error) {
+      console.error('Failed to delete reply:', error);
+      toast({ title: '删除失败', variant: 'destructive' });
     }
   };
 
@@ -185,6 +201,8 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
                     onDelete={() => handleDeleteNote(note.id)}
                     onReply={() => handleReplyNote(note)}
                     onTogglePin={() => handleTogglePin(note.id)}
+                    onDeleteReply={handleDeleteReply}
+                    currentUserId={currentUserId}
                   />
                 ))}
               </div>
@@ -204,6 +222,8 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
                     onDelete={() => handleDeleteNote(note.id)}
                     onReply={() => handleReplyNote(note)}
                     onTogglePin={() => handleTogglePin(note.id)}
+                    onDeleteReply={handleDeleteReply}
+                    currentUserId={currentUserId}
                   />
                 ))}
               </div>
