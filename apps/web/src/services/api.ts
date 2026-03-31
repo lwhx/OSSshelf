@@ -712,6 +712,20 @@ export const searchApi = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Permissions & Tags
 // ─────────────────────────────────────────────────────────────────────────────
+export interface GlobalPermission {
+  id: string;
+  subjectType: 'user' | 'group';
+  subjectId: string | null;
+  subjectName: string;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  isFolder: boolean;
+  permission: 'read' | 'write' | 'admin';
+  expiresAt: string | null;
+  createdAt: string;
+}
+
 export interface SearchableUser {
   id: string;
   email: string;
@@ -774,6 +788,12 @@ export const permissionsApi = {
   getUserTags: () => api.get<ApiResponse<FileTag[]>>('/api/permissions/tags/user'),
   getBatchFileTags: (fileIds: string[]) =>
     api.post<ApiResponse<Record<string, FileTag[]>>>('/api/permissions/tags/batch', { fileIds }),
+  getAllPermissions: () =>
+    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  revokeById: (permissionId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
+  updatePermission: (permissionId: string, permission: 'read' | 'write' | 'admin', expiresAt?: string) =>
+    api.patch<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`, { permission, expiresAt }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -984,6 +1004,32 @@ export const webhooksApi = {
   delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/webhooks/${id}`),
   test: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/webhooks/${id}/test`),
   getEvents: () => api.get<ApiResponse<WebhookEvent[]>>('/api/webhooks/events'),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global Permissions (全局权限管理)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface GlobalPermission {
+  id: string;
+  subjectType: 'user' | 'group';
+  subjectId: string | null;
+  subjectName: string;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  isFolder: boolean;
+  permission: 'read' | 'write' | 'admin';
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export const globalPermissionsApi = {
+  getAll: () =>
+    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  revokeById: (permissionId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
+  update: (permissionId: string, data: { permission: 'read' | 'write' | 'admin'; expiresAt?: string }) =>
+    api.patch<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`, data),
 };
 
 export default api;

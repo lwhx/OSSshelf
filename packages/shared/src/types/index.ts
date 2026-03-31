@@ -134,6 +134,8 @@ export type AuditAction =
   | 'bucket.delete'
   | 'permission.grant'
   | 'permission.revoke'
+  | 'permission.update'
+  | 'permission.delete'
   | 'group.create'
   | 'group.update'
   | 'group.delete'

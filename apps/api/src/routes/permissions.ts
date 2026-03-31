@@ -557,4 +557,181 @@ app.get('/users/search', async (c) => {
   });
 });
 
+app.get('/all', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const userFiles = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+    .all();
+
+  const fileIds = userFiles.map((f) => f.id);
+
+  if (fileIds.length === 0) {
+    return c.json({ success: true, data: { permissions: [] } });
+  }
+
+  const permissions = await db
+    .select({
+      id: filePermissions.id,
+      subjectType: filePermissions.subjectType,
+      subjectId: filePermissions.userId,
+      permission: filePermissions.permission,
+      expiresAt: filePermissions.expiresAt,
+      createdAt: filePermissions.createdAt,
+      fileId: filePermissions.fileId,
+      fileName: files.name,
+      filePath: files.path,
+      isFolder: files.isFolder,
+      userName: users.name,
+      userEmail: users.email,
+      groupName: userGroups.name,
+    })
+    .from(filePermissions)
+    .innerJoin(files, eq(filePermissions.fileId, files.id))
+    .leftJoin(users, eq(filePermissions.userId, users.id))
+    .leftJoin(userGroups, eq(filePermissions.groupId, userGroups.id))
+    .where(inArray(filePermissions.fileId, fileIds))
+    .all();
+
+  const formattedPermissions = permissions.map((p) => ({
+    id: p.id,
+    subjectType: p.subjectType,
+    subjectId: p.subjectId,
+    subjectName: p.subjectType === 'user' ? (p.userName || p.userEmail || '未知用户') : (p.groupName || '未知组'),
+    fileId: p.fileId,
+    fileName: p.fileName,
+    filePath: p.filePath,
+    isFolder: p.isFolder,
+    permission: p.permission,
+    expiresAt: p.expiresAt,
+    createdAt: p.createdAt,
+  }));
+
+  return c.json({ success: true, data: { permissions: formattedPermissions } });
+});
+
+const updatePermissionSchema = z.object({
+  permission: z.enum(['read', 'write', 'admin']),
+  expiresAt: z.string().optional().nullable(),
+});
+
+app.patch('/:permissionId', async (c) => {
+  const userId = c.get('userId')!;
+  const permissionId = c.req.param('permissionId');
+  const body = await c.req.json();
+  const result = updatePermissionSchema.safeParse(body);
+
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { permission, expiresAt } = result.data;
+  const db = getDb(c.env.DB);
+
+  const existingPermission = await db
+    .select()
+    .from(filePermissions)
+    .where(eq(filePermissions.id, permissionId))
+    .get();
+
+  if (!existingPermission) {
+    throwAppError('NOT_FOUND', '权限记录不存在');
+  }
+
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, existingPermission.fileId), eq(files.userId, userId)))
+    .get();
+
+  if (!file) {
+    throwAppError('FORBIDDEN', '无权修改此权限');
+  }
+
+  const now = new Date().toISOString();
+  await db
+    .update(filePermissions)
+    .set({
+      permission,
+      expiresAt: expiresAt || null,
+      updatedAt: now,
+    })
+    .where(eq(filePermissions.id, permissionId));
+
+  await invalidatePermissionCache(c.env, existingPermission.fileId);
+
+  await createAuditLog({
+    env: c.env,
+    userId,
+    action: 'permission.update',
+    resourceType: 'permission',
+    resourceId: permissionId,
+    details: {
+      fileId: existingPermission.fileId,
+      targetUserId: existingPermission.userId,
+      targetGroupId: existingPermission.groupId,
+      oldPermission: existingPermission.permission,
+      newPermission: permission,
+      expiresAt,
+    },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
+  return c.json({ success: true, data: { message: '权限已更新' } });
+});
+
+app.delete('/:permissionId', async (c) => {
+  const userId = c.get('userId')!;
+  const permissionId = c.req.param('permissionId');
+  const db = getDb(c.env.DB);
+
+  const existingPermission = await db
+    .select()
+    .from(filePermissions)
+    .where(eq(filePermissions.id, permissionId))
+    .get();
+
+  if (!existingPermission) {
+    throwAppError('NOT_FOUND', '权限记录不存在');
+  }
+
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, existingPermission.fileId), eq(files.userId, userId)))
+    .get();
+
+  if (!file) {
+    throwAppError('FORBIDDEN', '无权删除此权限');
+  }
+
+  await db.delete(filePermissions).where(eq(filePermissions.id, permissionId));
+
+  await invalidatePermissionCache(c.env, existingPermission.fileId);
+
+  await createAuditLog({
+    env: c.env,
+    userId,
+    action: 'permission.delete',
+    resourceType: 'permission',
+    resourceId: permissionId,
+    details: {
+      fileId: existingPermission.fileId,
+      targetUserId: existingPermission.userId,
+      targetGroupId: existingPermission.groupId,
+    },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
+  return c.json({ success: true, data: { message: '权限已删除' } });
+});
+
 export default app;
