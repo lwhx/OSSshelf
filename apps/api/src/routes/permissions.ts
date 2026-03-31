@@ -162,7 +162,8 @@ app.get('/all', async (c) => {
       .select({
         id: filePermissions.id,
         subjectType: filePermissions.subjectType,
-        subjectId: filePermissions.userId,
+        userId: filePermissions.userId,
+        groupId: filePermissions.groupId,
         permission: filePermissions.permission,
         expiresAt: filePermissions.expiresAt,
         createdAt: filePermissions.createdAt,
@@ -184,7 +185,7 @@ app.get('/all', async (c) => {
     const formattedPermissions = permissions.map((p) => ({
       id: p.id,
       subjectType: p.subjectType,
-      subjectId: p.subjectId,
+      subjectId: p.subjectType === 'user' ? p.userId : p.groupId,
       subjectName: p.subjectType === 'user' ? (p.userName || p.userEmail || '未知用户') : (p.groupName || '未知组'),
       fileId: p.fileId,
       fileName: p.fileName,

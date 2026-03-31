@@ -56,7 +56,7 @@ const Permissions: React.FC = () => {
                   权限说明
                 </button>
                 <a
-                  href="/api/v1/docs"
+                  href={`${import.meta.env.VITE_API_URL}/api/v1/docs`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-md hover:bg-primary/20 transition-colors"
