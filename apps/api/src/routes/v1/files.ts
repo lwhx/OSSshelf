@@ -148,7 +148,7 @@ app.openapi(getFileRoute, async (c) => {
   const { id } = c.req.valid('param');
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, id, userId, 'read');
+  const { hasAccess } = await checkFilePermission(db, id, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -199,7 +199,7 @@ app.openapi(deleteFileRoute, async (c) => {
   const { id } = c.req.valid('param');
   const db = getDb(c.env.DB);
 
-  const { hasAccess, isOwner } = await checkFilePermission(db, id, userId, 'write');
+  const { hasAccess, isOwner } = await checkFilePermission(db, id, userId, 'write', c.env);
   if (!hasAccess && !isOwner) {
     throwAppError('FILE_ACCESS_DENIED', '无权删除此文件');
   }

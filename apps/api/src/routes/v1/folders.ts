@@ -76,7 +76,7 @@ app.openapi(createFolderRoute, async (c) => {
 
   let parentPath = '';
   if (parentId) {
-    const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write');
+    const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
     if (!hasAccess) {
       throwAppError('FOLDER_ACCESS_DENIED', '无权在此文件夹中创建');
     }

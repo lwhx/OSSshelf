@@ -21,6 +21,7 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import {
   checkPermissionWithCache,
   invalidatePermissionCache,
+  resolveEffectivePermission,
   type PermissionLevel,
 } from '../lib/permissionResolver';
 
@@ -69,7 +70,8 @@ export async function checkFilePermission(
   db: ReturnType<typeof getDb>,
   fileId: string,
   userId: string,
-  requiredPermission: PermissionLevel
+  requiredPermission: PermissionLevel,
+  env?: Env
 ): Promise<{ hasAccess: boolean; permission: string | null; isOwner: boolean }> {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) {
@@ -78,6 +80,15 @@ export async function checkFilePermission(
 
   if (file.userId === userId) {
     return { hasAccess: true, permission: 'admin', isOwner: true };
+  }
+
+  if (env) {
+    const resolution = await resolveEffectivePermission(db, env, fileId, userId, requiredPermission);
+    return {
+      hasAccess: resolution.hasAccess,
+      permission: resolution.permission,
+      isOwner: false,
+    };
   }
 
   const permission = await db
@@ -449,7 +460,7 @@ app.post('/tags/add', async (c) => {
   const { fileId, name, color } = result.data;
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write', c.env);
   if (!hasAccess) {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
@@ -495,7 +506,7 @@ app.post('/tags/remove', async (c) => {
   const { fileId, tagName } = result.data;
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write', c.env);
   if (!hasAccess) {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
@@ -545,7 +556,7 @@ app.get('/file/:fileId', async (c) => {
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
 
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -598,7 +609,7 @@ app.get('/tags/file/:fileId', async (c) => {
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -613,7 +624,7 @@ app.get('/check/:fileId', async (c) => {
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
 
-  const result = await checkFilePermission(db, fileId, userId, 'read');
+  const result = await checkFilePermission(db, fileId, userId, 'read', c.env);
 
   return c.json({
     success: true,

@@ -60,7 +60,7 @@ app.openapi(createShareRoute, async (c) => {
   const { fileId, password, expiresAt, downloadLimit } = c.req.valid('json');
   const db = getDb(c.env.DB);
 
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess && !isOwner) {
     throwAppError('FILE_ACCESS_DENIED', '无权分享此文件');
   }

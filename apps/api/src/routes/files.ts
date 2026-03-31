@@ -185,7 +185,7 @@ app.get('/:id/download', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
-  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read', c.env);
   if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权下载此文件');
 
   const file = await db
@@ -963,7 +963,7 @@ app.get('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，允许被授权的用户访问
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -1005,7 +1005,7 @@ app.put('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，需要 write 权限
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write');
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write', c.env);
   if (!hasAccess) {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
@@ -1047,7 +1047,7 @@ app.get('/:id/raw', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -1139,7 +1139,7 @@ app.put('/:id/content', async (c) => {
   const { content, changeSummary } = result.data;
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write', c.env);
   if (!hasAccess) {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
@@ -1345,7 +1345,7 @@ app.delete('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，需要 admin 权限才能删除
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'admin');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'admin', c.env);
   if (!hasAccess) {
     throwAppError('FILE_DELETE_DENIED', '无权删除此文件');
   }
