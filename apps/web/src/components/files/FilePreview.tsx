@@ -484,8 +484,17 @@ export function FilePreview({
   const [showNotes, setShowNotes] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showSmartRename, setShowSmartRename] = useState(false);
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [aiTags, setAiTags] = useState<string[]>([]);
+  // 从 file 对象读取已缓存的 AI 数据，避免每次打开都要重新生成
+  const [aiSummary, setAiSummary] = useState<string | null>(file.aiSummary ?? null);
+  const [aiSummaryAt, setAiSummaryAt] = useState<string | null>(file.aiSummaryAt ?? null);
+  const [aiTags, setAiTags] = useState<string[]>(() => {
+    if (!file.aiTags) return [];
+    try {
+      return JSON.parse(file.aiTags);
+    } catch {
+      return [];
+    }
+  });
 
   const canPreview = isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -1447,7 +1456,11 @@ export function FilePreview({
                   <AISummaryCard
                     fileId={file.id}
                     summary={aiSummary}
-                    onSummaryGenerated={setAiSummary}
+                    summaryAt={aiSummaryAt}
+                    onSummaryGenerated={(summary) => {
+                      setAiSummary(summary);
+                      setAiSummaryAt(new Date().toISOString());
+                    }}
                   />
                   {file.mimeType?.startsWith('image/') && (
                     <ImageTagsDisplay
@@ -1481,7 +1494,11 @@ export function FilePreview({
                   <AISummaryCard
                     fileId={file.id}
                     summary={aiSummary}
-                    onSummaryGenerated={setAiSummary}
+                    summaryAt={aiSummaryAt}
+                    onSummaryGenerated={(summary) => {
+                      setAiSummary(summary);
+                      setAiSummaryAt(new Date().toISOString());
+                    }}
                   />
                   <ImageTagsDisplay
                     fileId={file.id}

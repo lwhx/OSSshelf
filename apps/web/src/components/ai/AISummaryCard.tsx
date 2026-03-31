@@ -23,6 +23,8 @@ export function AISummaryCard({
 }: AISummaryCardProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [localSummary, setLocalSummary] = useState(summary);
+  // 内部维护 summaryAt，生成后立即更新，不依赖父组件重渲染
+  const [localSummaryAt, setLocalSummaryAt] = useState(summaryAt);
   const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
@@ -31,8 +33,10 @@ export function AISummaryCard({
     try {
       const response = await aiApi.summarize(fileId);
       if (response.data.success && response.data.data) {
-        setLocalSummary(response.data.data.summary);
-        onSummaryGenerated?.(response.data.data.summary);
+        const newSummary = response.data.data.summary;
+        setLocalSummary(newSummary);
+        setLocalSummaryAt(new Date().toISOString());
+        onSummaryGenerated?.(newSummary);
       }
     } catch (e: any) {
       setError(e.response?.data?.error?.message || '生成摘要失败');
@@ -52,7 +56,7 @@ export function AISummaryCard({
           onClick={handleGenerate}
           disabled={isGenerating}
           className="p-2 hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
-          title="生成摘要"
+          title={localSummary ? '重新生成摘要' : '生成 AI 摘要'}
         >
           {isGenerating ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -67,11 +71,11 @@ export function AISummaryCard({
       )}
 
       {localSummary ? (
-        <div className="space-y-2">
+        <div className="space-y-1">
           <p className="text-sm text-muted-foreground">{localSummary}</p>
-          {summaryAt && (
-            <p className="text-xs text-muted-foreground">
-              生成于 {formatDate(summaryAt)}
+          {localSummaryAt && (
+            <p className="text-xs text-muted-foreground/60">
+              生成于 {formatDate(localSummaryAt)}
             </p>
           )}
         </div>

@@ -11,7 +11,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
@@ -20,9 +20,9 @@ import { z } from 'zod';
 import {
   indexFileVector,
   deleteFileVector,
-  searchSimilarFiles,
   buildFileTextForVector,
   isAIConfigured,
+  searchAndFetchFiles,
 } from '../lib/vectorIndex';
 import {
   generateFileSummary,
@@ -56,36 +56,7 @@ app.get('/status', async (c) => {
   });
 });
 
-app.post('/index/:fileId', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const db = getDb(c.env.DB);
-
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-
-  if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
-  }
-
-  if (file.isFolder) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持向量化' } },
-      400
-    );
-  }
-
-  const text = await buildFileTextForVector(c.env, fileId);
-  await indexFileVector(c.env, fileId, text);
-
-  return c.json({ success: true, data: { message: '向量化完成' } });
-});
+// ── 具体路径必须在 :fileId 参数路由之前，否则 Hono 会把 "batch"/"all"/"status" 当 fileId 匹配 ──
 
 app.post('/index/batch', async (c) => {
   const userId = c.get('userId')!;
@@ -134,7 +105,6 @@ app.post('/index/batch', async (c) => {
 
 app.post('/index/all', async (c) => {
   const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
 
   const taskKey = `ai:index:task:${userId}`;
   const existingTask = await c.env.KV.get(taskKey, 'json');
@@ -149,23 +119,11 @@ app.post('/index/all', async (c) => {
     });
   }
 
-  const unindexedCount = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        isNull(files.deletedAt),
-        eq(files.isFolder, false),
-        isNull(files.vectorIndexedAt)
-      )
-    )
-    .get();
-
+  // total 由 runBatchIndexTask 内部快照确定，这里先用 0 占位
   const task = {
     id: crypto.randomUUID(),
     status: 'running',
-    total: unindexedCount?.count || 0,
+    total: 0,
     processed: 0,
     failed: 0,
     startedAt: new Date().toISOString(),
@@ -202,6 +160,38 @@ app.get('/index/status', async (c) => {
   }
 
   return c.json({ success: true, data: task });
+});
+
+// :fileId 参数路由放在所有具体路径之后
+app.post('/index/:fileId', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('fileId');
+  const db = getDb(c.env.DB);
+
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+    .get();
+
+  if (!file) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
+      404
+    );
+  }
+
+  if (file.isFolder) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持向量化' } },
+      400
+    );
+  }
+
+  const text = await buildFileTextForVector(c.env, fileId);
+  await indexFileVector(c.env, fileId, text);
+
+  return c.json({ success: true, data: { message: '向量化完成' } });
 });
 
 app.delete('/index/:fileId', async (c) => {
@@ -246,33 +236,12 @@ app.post('/search', async (c) => {
 
   const { query, limit, threshold, mimeType } = result.data;
 
-  const searchResults = await searchSimilarFiles(c.env, query, userId, {
+  // searchAndFetchFiles 内部用 inArray 单次查询，避免全表扫描
+  const items = await searchAndFetchFiles(c.env, query, userId, {
     limit,
     threshold,
     mimeType,
   });
-
-  const db = getDb(c.env.DB);
-  const fileIds = searchResults.map((r) => r.fileId);
-
-  if (fileIds.length === 0) {
-    return c.json({ success: true, data: [] });
-  }
-
-  const fileRecords = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-    .all();
-
-  const fileMap = new Map(fileRecords.map((f) => [f.id, f]));
-
-  const items = searchResults
-    .filter((r) => fileMap.has(r.fileId))
-    .map((r) => ({
-      ...fileMap.get(r.fileId)!,
-      similarityScore: r.score,
-    }));
 
   return c.json({ success: true, data: items });
 });
@@ -396,43 +365,43 @@ async function runBatchIndexTask(
   const batchSize = 10;
 
   try {
-    let hasMore = true;
-    let processed = 0;
-
-    while (hasMore) {
-      const unindexedFiles = await db
-        .select({ id: files.id })
-        .from(files)
-        .where(
-          and(
-            eq(files.userId, userId),
-            isNull(files.deletedAt),
-            eq(files.isFolder, false),
-            isNull(files.vectorIndexedAt)
-          )
+    // 一次性获取所有待索引文件 ID，total 固定为此快照数量，保证进度条准确
+    const allUnindexed = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.deletedAt),
+          eq(files.isFolder, false),
+          isNull(files.vectorIndexedAt)
         )
-        .limit(batchSize)
-        .all();
+      )
+      .all();
 
-      if (unindexedFiles.length === 0) {
-        hasMore = false;
-        break;
-      }
+    (task as any).total = allUnindexed.length;
+    (task as any).processed = 0;
+    (task as any).failed = 0;
+    await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
 
-      for (const file of unindexedFiles) {
+    // 按批次处理，避免单次 waitUntil 超时
+    for (let i = 0; i < allUnindexed.length; i += batchSize) {
+      const batch = allUnindexed.slice(i, i + batchSize);
+
+      for (const file of batch) {
         try {
           const text = await buildFileTextForVector(env, file.id);
           await indexFileVector(env, file.id, text);
-          processed++;
-          (task as any).processed = processed;
+          (task as any).processed = ((task as any).processed || 0) + 1;
         } catch (error) {
           (task as any).failed = ((task as any).failed || 0) + 1;
           console.error(`Failed to index file ${file.id}:`, error);
         }
-
-        (task as any).updatedAt = new Date().toISOString();
-        await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
       }
+
+      // 每批结束后更新进度
+      (task as any).updatedAt = new Date().toISOString();
+      await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
     }
 
     (task as any).status = 'completed';

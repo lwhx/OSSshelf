@@ -1,12 +1,6 @@
 /**
  * aiFeatures.ts
  * AI 功能模块
- *
- * 功能:
- * - 文件摘要生成
- * - 图片标签生成
- * - 智能重命名建议
- * - 文本内容提取
  */
 
 import type { Env } from '../types/env';
@@ -15,7 +9,9 @@ import { eq } from 'drizzle-orm';
 import { getFileContent } from './utils';
 
 const SUMMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct' as const;
-const IMAGE_MODEL = '@cf/llava-hf/llava-1.5-7b-hf' as const;
+// llava: 图片理解，返回字段为 description
+const IMAGE_CAPTION_MODEL = '@cf/llava-hf/llava-1.5-7b-hf' as const;
+// resnet-50: 快速分类标签（英文），作为 llava 的补充
 const IMAGE_TAG_MODEL = '@cf/microsoft/resnet-50' as const;
 
 export interface SummaryResult {
@@ -32,13 +28,18 @@ export interface RenameSuggestion {
   suggestions: string[];
 }
 
-const EDITABLE_MIME_TYPES = [
+const TEXT_MIME_PREFIXES = [
   'text/',
   'application/json',
   'application/xml',
   'application/javascript',
   'application/typescript',
 ];
+
+function isTextFile(mimeType: string | null): boolean {
+  if (!mimeType) return false;
+  return TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+}
 
 export async function generateFileSummary(
   env: Env,
@@ -92,15 +93,13 @@ export async function generateFileSummary(
 
     const summary = (response as { response?: string }).response?.trim() || '';
 
-    await env.KV.put(cacheKey, summary, { expirationTtl: 86400 });
-
-    await db
-      .update(files)
-      .set({
-        aiSummary: summary,
-        aiSummaryAt: new Date().toISOString(),
-      })
-      .where(eq(files.id, fileId));
+    await Promise.all([
+      env.KV.put(cacheKey, summary, { expirationTtl: 86400 }),
+      db
+        .update(files)
+        .set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() })
+        .where(eq(files.id, fileId)),
+    ]);
 
     return { summary, cached: false };
   } catch (error) {
@@ -127,7 +126,7 @@ export async function generateImageTags(
 
   let imageData = imageBuffer;
   if (!imageData) {
-    imageData = await fetchFileContentAsBuffer(env, file) ?? undefined;
+    imageData = (await fetchFileContentAsBuffer(env, file)) ?? undefined;
   }
 
   if (!imageData) {
@@ -137,32 +136,42 @@ export async function generateImageTags(
   const uint8Array = new Uint8Array(imageData);
 
   try {
-    const tagResult = await (env.AI as any).run(IMAGE_TAG_MODEL, {
-      image: Array.from(uint8Array),
-    });
-
-    const tags = parseImageTags(tagResult);
-
-    let caption = '';
-    try {
-      const captionResult = await (env.AI as any).run(IMAGE_MODEL, {
+    // 并发调用 llava（中文描述）和 resnet-50（分类标签）
+    const [captionResult, tagResult] = await Promise.allSettled([
+      (env.AI as any).run(IMAGE_CAPTION_MODEL, {
         image: Array.from(uint8Array),
-        prompt:
-          '用中文简要描述这张图片的主要内容，用于文件管理系统的搜索标签。不超过20个字。',
-      });
-      caption =
-        (captionResult as { description?: string }).description?.trim() || '';
-    } catch (e) {
-      console.warn('Failed to generate image caption:', e);
+        prompt: '用中文简要描述这张图片的主要内容，不超过20个字。',
+        max_tokens: 100,
+      }),
+      (env.AI as any).run(IMAGE_TAG_MODEL, {
+        image: Array.from(uint8Array),
+      }),
+    ]);
+
+    // llava 返回字段是 description（不是 response）
+    let caption = '';
+    if (captionResult.status === 'fulfilled') {
+      const r = captionResult.value as { description?: string };
+      caption = r.description?.trim() || '';
+    } else {
+      console.warn('llava caption failed:', captionResult.reason);
     }
 
+    let tags: string[] = [];
+    if (tagResult.status === 'fulfilled') {
+      tags = parseImageTags(tagResult.value);
+    } else {
+      console.warn('resnet-50 tagging failed:', tagResult.reason);
+    }
+
+    const now = new Date().toISOString();
     await db
       .update(files)
       .set({
         aiTags: JSON.stringify(tags),
-        aiTagsAt: new Date().toISOString(),
-        aiSummary: caption || undefined,
-        aiSummaryAt: caption ? new Date().toISOString() : undefined,
+        aiTagsAt: now,
+        // caption 存入 aiSummary，供语义搜索使用
+        ...(caption ? { aiSummary: caption, aiSummaryAt: now } : {}),
       })
       .where(eq(files.id, fileId));
 
@@ -189,38 +198,66 @@ export async function suggestFileName(
     throw new Error('File not found');
   }
 
-  let textContent = content;
-  if (!textContent) {
-    textContent = await extractTextFromFile(env, file);
-  }
+  const ext = file.name.includes('.') ? `.${file.name.split('.').pop()}` : '';
 
-  const ext = file.name.split('.').pop() || '';
+  // 文本文件：用实际内容；非文本文件：用文件名+mimeType 让 AI 猜
+  let contextForAI: string;
+  let isContentBased = false;
+
+  if (isTextFile(file.mimeType)) {
+    let textContent = content;
+    if (!textContent) {
+      textContent = await extractTextFromFile(env, file);
+    }
+    if (textContent && textContent.length >= 30) {
+      contextForAI = `文件内容（前2000字）：\n${textContent.slice(0, 2000)}`;
+      isContentBased = true;
+    } else {
+      contextForAI = `文件类型：${file.mimeType || '未知'}`;
+    }
+  } else {
+    // 图片/PDF/视频等：用 mimeType + 已有 aiSummary/aiTags 辅助
+    const hints = [
+      `文件类型：${file.mimeType || '未知'}`,
+      file.aiSummary ? `AI描述：${file.aiSummary}` : '',
+      file.aiTags ? `AI标签：${JSON.parse(file.aiTags).join(', ')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    contextForAI = hints;
+  }
 
   try {
     const response = await (env.AI as any).run(SUMMARY_MODEL, {
       messages: [
         {
           role: 'system',
-          content: `你是文件命名助手。根据文件内容，建议3个简洁、有意义的中文文件名。
+          content: `你是文件命名助手。根据提供的信息，建议3个简洁、有意义的中文文件名。
 规则：
 1. 每个文件名不超过20个字
-2. 保留文件扩展名 .${ext}
-3. 每行一个文件名，不要编号
-4. 文件名要能反映文件的主要内容`,
+2. 保留文件扩展名 ${ext || '（无扩展名）'}
+3. 每行一个文件名，不加编号、不加解释
+4. 文件名要能反映文件主要内容
+5. 只输出文件名，不输出其他任何内容`,
         },
         {
           role: 'user',
-          content: `原文件名：${file.name}\n文件内容：${textContent?.slice(0, 2000) || '（无内容）'}`,
+          content: `原文件名：${file.name}\n${contextForAI}`,
         },
       ],
-      max_tokens: 100,
+      max_tokens: 150,
     });
 
     const responseText = (response as { response?: string }).response || '';
     const suggestions = responseText
       .split('\n')
       .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0 && s.includes('.'))
+      .filter((s: string) => {
+        if (!s || s.length === 0) return false;
+        // 过滤掉 AI 可能输出的解释性文字（不包含文件扩展名或太长）
+        if (isContentBased && ext && !s.includes('.')) return false;
+        return s.length <= 50;
+      })
       .slice(0, 3);
 
     return { suggestions };
@@ -234,11 +271,7 @@ async function extractTextFromFile(
   env: Env,
   file: typeof files.$inferSelect
 ): Promise<string> {
-  const isEditable = EDITABLE_MIME_TYPES.some((type) =>
-    file.mimeType?.startsWith(type)
-  );
-
-  if (!isEditable) {
+  if (!isTextFile(file.mimeType)) {
     return '';
   }
 
@@ -262,8 +295,7 @@ async function fetchFileContentAsBuffer(
   }
 
   try {
-    const content = await getFileContent(env, file.bucketId, file.r2Key);
-    return content;
+    return await getFileContent(env, file.bucketId, file.r2Key);
   } catch (error) {
     console.error('Failed to fetch file content:', error);
     return null;
@@ -277,7 +309,12 @@ function parseImageTags(result: unknown): string[] {
 
   if (Array.isArray(result)) {
     for (const item of result) {
-      if (item && typeof item === 'object' && 'label' in item && typeof item.label === 'string') {
+      if (
+        item &&
+        typeof item === 'object' &&
+        'label' in item &&
+        typeof item.label === 'string'
+      ) {
         tags.push(item.label.trim());
       }
     }

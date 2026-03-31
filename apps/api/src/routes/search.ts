@@ -138,7 +138,7 @@ app.get('/', async (c) => {
   if (useSemantic && searchParams.query) {
     const results = await searchSimilarFiles(c.env, searchParams.query, userId, {
       limit: searchParams.limit || 50,
-      threshold: 0.6,
+      threshold: 0.5, // bge-m3 cosine 分数普遍低于 bge-base-en，0.6 会过滤过多
       mimeType: searchParams.mimeType,
     });
     for (const r of results) {
@@ -542,18 +542,18 @@ app.get('/history', async (c) => {
   return c.json({ success: true, data: rows });
 });
 
+app.delete('/history', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+  await db.delete(searchHistory).where(eq(searchHistory.userId, userId));
+  return c.json({ success: true });
+});
+
 app.delete('/history/:id', async (c) => {
   const userId = c.get('userId')!;
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
   await db.delete(searchHistory).where(and(eq(searchHistory.id, id), eq(searchHistory.userId, userId)));
-  return c.json({ success: true });
-});
-
-app.delete('/history', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-  await db.delete(searchHistory).where(eq(searchHistory.userId, userId));
   return c.json({ success: true });
 });
 

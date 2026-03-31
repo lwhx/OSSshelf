@@ -2,17 +2,16 @@
  * vectorIndex.ts
  * 向量索引模块
  *
- * 功能:
- * - 为文件生成向量嵌入并存储到 Vectorize
- * - 语义相似文件搜索
- * - 批量索引管理
+ * 模型: @cf/baai/bge-m3（多语言，1024维）
+ * 注意: Vectorize 索引需以 --dimensions=1024 --metric=cosine 创建
  */
 
 import type { Env } from '../types/env';
 import { getDb, files, fileNotes } from '../db';
-import { eq } from 'drizzle-orm';
+import { eq, and, inArray, isNull } from 'drizzle-orm';
 
-const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
+// bge-m3: 多语言，1024 维，中文效果远优于 bge-base-en-v1.5
+const EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const MAX_TEXT_LENGTH = 4096;
 
 export interface VectorSearchResult {
@@ -49,16 +48,17 @@ export async function indexFileVector(
       text: [truncatedText],
     });
 
+    // bge-m3 返回结构: { data: number[][] }
     const data = result?.data;
     if (!data || data.length === 0) {
-      throw new Error('Failed to generate embedding');
+      throw new Error('Failed to generate embedding: empty data');
     }
 
     const db = getDb(env.DB);
     const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
     if (!file) {
-      throw new Error('File not found');
+      throw new Error(`File not found: ${fileId}`);
     }
 
     await env.VECTORIZE.upsert([
@@ -69,7 +69,6 @@ export async function indexFileVector(
           userId: file.userId,
           name: file.name,
           mimeType: file.mimeType || '',
-          isFolder: file.isFolder,
         },
       },
     ]);
@@ -104,7 +103,8 @@ export async function searchSimilarFiles(
     mimeType?: string;
   } = {}
 ): Promise<VectorSearchResult[]> {
-  const { limit = 20, threshold = 0.7, mimeType } = options;
+  // threshold 默认 0.5（bge-m3 cosine 分数普遍偏低，0.7 会过滤掉大量有效结果）
+  const { limit = 20, threshold = 0.5 } = options;
 
   if (!env.AI || !env.VECTORIZE) {
     return [];
@@ -120,10 +120,8 @@ export async function searchSimilarFiles(
       return [];
     }
 
+    // userId filter 防止跨用户泄露
     const filter: VectorizeVectorMetadataFilter = { userId };
-    if (mimeType) {
-      (filter as any).mimeType = { $startsWith: mimeType };
-    }
 
     const results = await env.VECTORIZE.query(data[0], {
       topK: limit,
@@ -191,6 +189,43 @@ export async function batchIndexFiles(
   }
 
   return results;
+}
+
+/**
+ * 语义搜索 + DB 查询合并，避免 ai/search 路由的全表扫描
+ */
+export async function searchAndFetchFiles(
+  env: Env,
+  query: string,
+  userId: string,
+  options: { limit?: number; threshold?: number; mimeType?: string } = {}
+) {
+  const searchResults = await searchSimilarFiles(env, query, userId, options);
+  if (searchResults.length === 0) return [];
+
+  const db = getDb(env.DB);
+  const fileIds = searchResults.map((r) => r.fileId);
+
+  const fileRecords = await db
+    .select()
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        isNull(files.deletedAt),
+        inArray(files.id, fileIds)
+      )
+    )
+    .all();
+
+  const fileMap = new Map(fileRecords.map((f) => [f.id, f]));
+
+  return searchResults
+    .filter((r) => fileMap.has(r.fileId))
+    .map((r) => ({
+      ...fileMap.get(r.fileId)!,
+      similarityScore: r.score,
+    }));
 }
 
 export async function isAIConfigured(env: Env): Promise<boolean> {
