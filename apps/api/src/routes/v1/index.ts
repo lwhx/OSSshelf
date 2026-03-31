@@ -14,12 +14,6 @@ import { meRoute } from './me';
 
 const app = new OpenAPIHono();
 
-app.route('/files', filesRoute);
-app.route('/folders', foldersRoute);
-app.route('/shares', sharesRoute);
-app.route('/search', searchRoute);
-app.route('/me', meRoute);
-
 app.doc('/openapi.json', {
   openapi: '3.1.0',
   info: {
@@ -65,5 +59,11 @@ app.get('/docs', (c) => {
     </html>
   `);
 });
+
+app.route('/files', filesRoute);
+app.route('/folders', foldersRoute);
+app.route('/shares', sharesRoute);
+app.route('/search', searchRoute);
+app.route('/me', meRoute);
 
 export default app;

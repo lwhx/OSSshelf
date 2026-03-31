@@ -137,6 +137,114 @@ async function getUserGroupIds(db: ReturnType<typeof getDb>, userId: string): Pr
   return memberships.map((m) => m.groupId);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 静态路由必须在参数化路由之前定义
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/all', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const userFiles = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+    .all();
+
+  const fileIds = userFiles.map((f) => f.id);
+
+  if (fileIds.length === 0) {
+    return c.json({ success: true, data: { permissions: [] } });
+  }
+
+  const permissions = await db
+    .select({
+      id: filePermissions.id,
+      subjectType: filePermissions.subjectType,
+      subjectId: filePermissions.userId,
+      permission: filePermissions.permission,
+      expiresAt: filePermissions.expiresAt,
+      createdAt: filePermissions.createdAt,
+      fileId: filePermissions.fileId,
+      fileName: files.name,
+      filePath: files.path,
+      isFolder: files.isFolder,
+      userName: users.name,
+      userEmail: users.email,
+      groupName: userGroups.name,
+    })
+    .from(filePermissions)
+    .innerJoin(files, eq(filePermissions.fileId, files.id))
+    .leftJoin(users, eq(filePermissions.userId, users.id))
+    .leftJoin(userGroups, eq(filePermissions.groupId, userGroups.id))
+    .where(inArray(filePermissions.fileId, fileIds))
+    .all();
+
+  const formattedPermissions = permissions.map((p) => ({
+    id: p.id,
+    subjectType: p.subjectType,
+    subjectId: p.subjectId,
+    subjectName: p.subjectType === 'user' ? (p.userName || p.userEmail || '未知用户') : (p.groupName || '未知组'),
+    fileId: p.fileId,
+    fileName: p.fileName,
+    filePath: p.filePath,
+    isFolder: p.isFolder,
+    permission: p.permission,
+    expiresAt: p.expiresAt,
+    createdAt: p.createdAt,
+  }));
+
+  return c.json({ success: true, data: { permissions: formattedPermissions } });
+});
+
+app.get('/users/search', async (c) => {
+  const userId = c.get('userId')!;
+  const query = c.req.query('q') || '';
+  const db = getDb(c.env.DB);
+
+  if (query.length < 2) {
+    return c.json({ success: true, data: [] });
+  }
+
+  const matchedUsers = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      role: users.role,
+    })
+    .from(users)
+    .where(like(users.email, `%${query}%`))
+    .limit(10);
+
+  const filteredUsers = matchedUsers.filter((u) => u.id !== userId);
+
+  return c.json({
+    success: true,
+    data: filteredUsers.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+    })),
+  });
+});
+
+app.get('/tags/user', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const tags = await db.select().from(fileTags).where(eq(fileTags.userId, userId)).all();
+
+  const uniqueTags = Array.from(new Map(tags.map((t) => [t.name, t])).values());
+
+  return c.json({ success: true, data: uniqueTags });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST 路由
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.post('/grant', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -314,59 +422,6 @@ app.post('/revoke', async (c) => {
   return c.json({ success: true, data: { message: '权限已撤销' } });
 });
 
-app.get('/file/:fileId', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const db = getDb(c.env.DB);
-
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
-  if (!hasAccess) {
-    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
-  }
-
-  const permissions = await db
-    .select({
-      id: filePermissions.id,
-      userId: filePermissions.userId,
-      groupId: filePermissions.groupId,
-      permission: filePermissions.permission,
-      grantedBy: filePermissions.grantedBy,
-      subjectType: filePermissions.subjectType,
-      expiresAt: filePermissions.expiresAt,
-      scope: filePermissions.scope,
-      createdAt: filePermissions.createdAt,
-      userName: users.name,
-      userEmail: users.email,
-      groupName: userGroups.name,
-    })
-    .from(filePermissions)
-    .leftJoin(users, eq(filePermissions.userId, users.id))
-    .leftJoin(userGroups, eq(filePermissions.groupId, userGroups.id))
-    .where(eq(filePermissions.fileId, fileId))
-    .all();
-
-  return c.json({
-    success: true,
-    data: {
-      isOwner,
-      permissions: permissions.map((p) => ({
-        id: p.id,
-        userId: p.userId,
-        groupId: p.groupId,
-        permission: p.permission,
-        grantedBy: p.grantedBy,
-        subjectType: p.subjectType,
-        expiresAt: p.expiresAt,
-        scope: p.scope,
-        userName: p.userName,
-        userEmail: p.userEmail,
-        groupName: p.groupName,
-        createdAt: p.createdAt,
-      })),
-    },
-  });
-});
-
 app.post('/tags/add', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -437,32 +492,6 @@ app.post('/tags/remove', async (c) => {
   return c.json({ success: true, data: { message: '标签已移除' } });
 });
 
-app.get('/tags/file/:fileId', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const db = getDb(c.env.DB);
-
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
-  if (!hasAccess) {
-    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
-  }
-
-  const tags = await db.select().from(fileTags).where(eq(fileTags.fileId, fileId)).all();
-
-  return c.json({ success: true, data: tags });
-});
-
-app.get('/tags/user', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const tags = await db.select().from(fileTags).where(eq(fileTags.userId, userId)).all();
-
-  const uniqueTags = Array.from(new Map(tags.map((t) => [t.name, t])).values());
-
-  return c.json({ success: true, data: uniqueTags });
-});
-
 const batchTagsSchema = z.object({
   fileIds: z.array(z.string().min(1)).max(100),
 });
@@ -494,6 +523,78 @@ app.post('/tags/batch', async (c) => {
   return c.json({ success: true, data: tagsByFileId });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 参数化路由（必须在静态路由之后）
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/file/:fileId', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('fileId');
+  const db = getDb(c.env.DB);
+
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
+
+  const permissions = await db
+    .select({
+      id: filePermissions.id,
+      userId: filePermissions.userId,
+      groupId: filePermissions.groupId,
+      permission: filePermissions.permission,
+      grantedBy: filePermissions.grantedBy,
+      subjectType: filePermissions.subjectType,
+      expiresAt: filePermissions.expiresAt,
+      scope: filePermissions.scope,
+      createdAt: filePermissions.createdAt,
+      userName: users.name,
+      userEmail: users.email,
+      groupName: userGroups.name,
+    })
+    .from(filePermissions)
+    .leftJoin(users, eq(filePermissions.userId, users.id))
+    .leftJoin(userGroups, eq(filePermissions.groupId, userGroups.id))
+    .where(eq(filePermissions.fileId, fileId))
+    .all();
+
+  return c.json({
+    success: true,
+    data: {
+      isOwner,
+      permissions: permissions.map((p) => ({
+        id: p.id,
+        userId: p.userId,
+        groupId: p.groupId,
+        permission: p.permission,
+        grantedBy: p.grantedBy,
+        subjectType: p.subjectType,
+        expiresAt: p.expiresAt,
+        scope: p.scope,
+        userName: p.userName,
+        userEmail: p.userEmail,
+        groupName: p.groupName,
+        createdAt: p.createdAt,
+      })),
+    },
+  });
+});
+
+app.get('/tags/file/:fileId', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('fileId');
+  const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
+
+  const tags = await db.select().from(fileTags).where(eq(fileTags.fileId, fileId)).all();
+
+  return c.json({ success: true, data: tags });
+});
+
 app.get('/check/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
@@ -522,95 +623,6 @@ app.get('/resolve/:fileId', async (c) => {
     success: true,
     data: resolution,
   });
-});
-
-app.get('/users/search', async (c) => {
-  const userId = c.get('userId')!;
-  const query = c.req.query('q') || '';
-  const db = getDb(c.env.DB);
-
-  if (query.length < 2) {
-    return c.json({ success: true, data: [] });
-  }
-
-  const matchedUsers = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      role: users.role,
-    })
-    .from(users)
-    .where(like(users.email, `%${query}%`))
-    .limit(10);
-
-  const filteredUsers = matchedUsers.filter((u) => u.id !== userId);
-
-  return c.json({
-    success: true,
-    data: filteredUsers.map((u) => ({
-      id: u.id,
-      email: u.email,
-      name: u.name,
-      role: u.role,
-    })),
-  });
-});
-
-app.get('/all', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const userFiles = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-    .all();
-
-  const fileIds = userFiles.map((f) => f.id);
-
-  if (fileIds.length === 0) {
-    return c.json({ success: true, data: { permissions: [] } });
-  }
-
-  const permissions = await db
-    .select({
-      id: filePermissions.id,
-      subjectType: filePermissions.subjectType,
-      subjectId: filePermissions.userId,
-      permission: filePermissions.permission,
-      expiresAt: filePermissions.expiresAt,
-      createdAt: filePermissions.createdAt,
-      fileId: filePermissions.fileId,
-      fileName: files.name,
-      filePath: files.path,
-      isFolder: files.isFolder,
-      userName: users.name,
-      userEmail: users.email,
-      groupName: userGroups.name,
-    })
-    .from(filePermissions)
-    .innerJoin(files, eq(filePermissions.fileId, files.id))
-    .leftJoin(users, eq(filePermissions.userId, users.id))
-    .leftJoin(userGroups, eq(filePermissions.groupId, userGroups.id))
-    .where(inArray(filePermissions.fileId, fileIds))
-    .all();
-
-  const formattedPermissions = permissions.map((p) => ({
-    id: p.id,
-    subjectType: p.subjectType,
-    subjectId: p.subjectId,
-    subjectName: p.subjectType === 'user' ? (p.userName || p.userEmail || '未知用户') : (p.groupName || '未知组'),
-    fileId: p.fileId,
-    fileName: p.fileName,
-    filePath: p.filePath,
-    isFolder: p.isFolder,
-    permission: p.permission,
-    expiresAt: p.expiresAt,
-    createdAt: p.createdAt,
-  }));
-
-  return c.json({ success: true, data: { permissions: formattedPermissions } });
 });
 
 const updatePermissionSchema = z.object({
