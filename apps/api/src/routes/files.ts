@@ -40,6 +40,7 @@ import {
 } from '../lib/telegramChunked';
 import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
 import { createVersionSnapshot, shouldCreateVersion } from '../lib/versionManager';
+import { indexFileVector, buildFileTextForVector, isAIConfigured } from '../lib/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -984,6 +985,21 @@ app.post('/create', async (c) => {
     const b = await db.select().from(storageBuckets).where(eq(storageBuckets.id, effectiveBucketId)).get();
     if (b) bucketInfo = { id: b.id, name: b.name, provider: b.provider };
   }
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          const text = await buildFileTextForVector(c.env, fileId);
+          if (text) {
+            await indexFileVector(c.env, fileId, text);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to index file vector:', error);
+      }
+    })()
+  );
 
   return c.json({
     success: true,

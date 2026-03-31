@@ -1032,4 +1032,80 @@ export const globalPermissionsApi = {
     api.patch<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`, data),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Features (AI 功能)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface AIStatus {
+  configured: boolean;
+  features: {
+    semanticSearch: boolean;
+    summary: boolean;
+    imageTags: boolean;
+    renameSuggest: boolean;
+  };
+}
+
+export interface AIFileStatus {
+  hasSummary: boolean;
+  summary: string | null;
+  summaryAt: string | null;
+  hasTags: boolean;
+  tags: string[];
+  tagsAt: string | null;
+  vectorIndexed: boolean;
+  vectorIndexedAt: string | null;
+}
+
+export interface AISummaryResult {
+  summary: string;
+  cached: boolean;
+}
+
+export interface AIImageTagResult {
+  tags: string[];
+  caption?: string;
+}
+
+export interface AIRenameSuggestion {
+  suggestions: string[];
+}
+
+export interface AIIndexTask {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | 'idle';
+  total: number;
+  processed: number;
+  failed: number;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+  error?: string;
+}
+
+export const aiApi = {
+  getStatus: () => api.get<ApiResponse<AIStatus>>('/api/ai/status'),
+
+  getFileStatus: (fileId: string) => api.get<ApiResponse<AIFileStatus>>(`/api/ai/file/${fileId}`),
+
+  search: (query: string, options?: { limit?: number; threshold?: number; mimeType?: string }) =>
+    api.post<ApiResponse<FileItem[]>>('/api/ai/search', { query, ...options }),
+
+  summarize: (fileId: string) => api.post<ApiResponse<AISummaryResult>>(`/api/ai/summarize/${fileId}`),
+
+  generateTags: (fileId: string) => api.post<ApiResponse<AIImageTagResult>>(`/api/ai/tags/${fileId}`),
+
+  suggestRename: (fileId: string) => api.post<ApiResponse<AIRenameSuggestion>>(`/api/ai/rename-suggest/${fileId}`),
+
+  indexFile: (fileId: string) => api.post<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
+
+  indexBatch: (fileIds: string[]) =>
+    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', { fileIds }),
+
+  indexAll: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/all'),
+
+  getIndexStatus: () => api.get<ApiResponse<AIIndexTask>>('/api/ai/index/status'),
+
+  deleteIndex: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
+};
+
 export default api;

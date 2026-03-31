@@ -42,9 +42,11 @@ import {
   Clock,
   MapPin,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
+import { AISettings } from '@/components/ai';
 
-type SettingsTab = 'profile' | 'security';
+type SettingsTab = 'profile' | 'security' | 'ai';
 
 function getDeviceIcon(userAgent: string): typeof Monitor {
   const ua = userAgent.toLowerCase();
@@ -192,6 +194,7 @@ export default function Settings() {
   const tabs: { id: SettingsTab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: '个人信息', icon: User },
     { id: 'security', label: '安全设置', icon: Shield },
+    { id: 'ai', label: 'AI 功能', icon: Sparkles },
   ];
 
   return (
@@ -611,6 +614,14 @@ export default function Settings() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {activeTab === 'ai' && (
+        <Card>
+          <CardContent className="pt-6">
+            <AISettings />
+          </CardContent>
+        </Card>
       )}
     </div>
   );
