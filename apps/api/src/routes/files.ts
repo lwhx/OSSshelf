@@ -11,7 +11,7 @@
 
 import { Hono, type Context } from 'hono';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions } from '../db';
+import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions, groupMembers } from '../db';
 import { checkFilePermission } from './permissions';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
@@ -473,32 +473,70 @@ app.get('/', async (c) => {
 
   const db = getDb(c.env.DB);
 
-  // 查询用户通过权限表获得授权访问的文件ID
-  const permittedFileIds = await db
-    .select({ fileId: filePermissions.fileId })
-    .from(filePermissions)
-    .where(eq(filePermissions.userId, userId))
-    .all();
-  const permittedIds = permittedFileIds.map((p) => p.fileId);
-
-  // 构建查询条件：用户自己的文件 或 被授权访问的文件
-  const ownershipCondition = or(
-    eq(files.userId, userId),
-    permittedIds.length > 0 ? inArray(files.id, permittedIds) : undefined
-  );
-
-  const conditions = [ownershipCondition, isNull(files.deletedAt)];
+  // 如果指定了 parentId，需要检查用户是否有权限访问该目录
   if (parentId) {
+    const { hasAccess } = await checkFilePermission(db, parentId, userId, 'read', c.env);
+    if (!hasAccess) {
+      throwAppError('FILE_ACCESS_DENIED', '无权访问此目录');
+    }
+  }
+
+  // 构建查询条件
+  const conditions: any[] = [isNull(files.deletedAt)];
+  
+  if (parentId) {
+    // 如果指定了 parentId，查询该目录下的文件
+    // 用户需要有权限访问该目录（已在上面检查）
     conditions.push(eq(files.parentId, parentId));
   } else {
+    // 未指定 parentId，返回用户有权限访问的根目录文件
+    // 包括：用户自己的根目录文件 + 被授权的根目录文件
+    
+    // 获取用户所属的用户组
+    const userGroups = await db
+      .select({ groupId: groupMembers.groupId })
+      .from(groupMembers)
+      .where(eq(groupMembers.userId, userId))
+      .all();
+    const groupIds = userGroups.map((g) => g.groupId);
+
+    // 查询用户直接获得授权的文件ID
+    const userPermittedFiles = await db
+      .select({ fileId: filePermissions.fileId })
+      .from(filePermissions)
+      .where(and(eq(filePermissions.userId, userId), eq(filePermissions.subjectType, 'user')))
+      .all();
+
+    // 查询用户组获得授权的文件ID
+    let groupPermittedFiles: { fileId: string }[] = [];
+    if (groupIds.length > 0) {
+      groupPermittedFiles = await db
+        .select({ fileId: filePermissions.fileId })
+        .from(filePermissions)
+        .where(and(inArray(filePermissions.groupId, groupIds), eq(filePermissions.subjectType, 'group')))
+        .all();
+    }
+
+    const permittedIds = new Set([
+      ...userPermittedFiles.map((p) => p.fileId),
+      ...groupPermittedFiles.map((p) => p.fileId),
+    ]);
+
+    // 根目录查询：用户自己的文件 或 被授权访问的文件
+    const ownershipCondition = or(
+      eq(files.userId, userId),
+      permittedIds.size > 0 ? inArray(files.id, Array.from(permittedIds)) : undefined
+    );
+    conditions.push(ownershipCondition);
     conditions.push(isNull(files.parentId));
   }
+  
   if (search) conditions.push(like(files.name, `%${search}%`));
 
   const items = await db
     .select()
     .from(files)
-    .where(and(...(conditions.filter(Boolean) as any[])))
+    .where(and(...conditions.filter(Boolean)))
     .all();
   const sorted = [...items].sort((a, b) => {
     const aVal = a[sortBy] ?? '';
@@ -531,13 +569,12 @@ app.get('/', async (c) => {
     for (const u of ownerRows) ownerMap[u.id] = u;
   }
 
-  // 权限信息（纯内存计算，无需额外 DB 查询）
-  const permittedIdSet = new Set(permittedIds);
+  // 权限信息
   const permissionsMap: Record<string, { permission: string | null; isOwner: boolean }> = {};
   for (const file of sorted) {
     const isOwner = file.userId === userId;
     permissionsMap[file.id] = {
-      permission: isOwner ? 'admin' : permittedIdSet.has(file.id) ? 'read' : null,
+      permission: isOwner ? 'admin' : null,
       isOwner,
     };
   }
