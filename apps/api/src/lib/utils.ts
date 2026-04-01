@@ -107,16 +107,23 @@ export async function buildFolderPath(db: DrizzleDb, userId: string, parentId: s
 }
 
 export async function getFileContent(env: Env, bucketId: string, r2Key: string): Promise<ArrayBuffer | null> {
-  if (bucketId === 'r2' && env.FILES) {
+  const db = getDbFromEnv(env);
+  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
+
+  if (!bucket) {
+    if (bucketId === 'r2' && env.FILES) {
+      const object = await env.FILES.get(r2Key);
+      if (!object) return null;
+      return object.arrayBuffer();
+    }
+    return null;
+  }
+
+  if (bucket.provider === 'r2' && env.FILES) {
     const object = await env.FILES.get(r2Key);
     if (!object) return null;
     return object.arrayBuffer();
   }
-
-  const db = getDbFromEnv(env);
-  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
-
-  if (!bucket) return null;
 
   const bucketConfig = await makeBucketConfigAsync(bucket, env.JWT_SECRET);
   if (!bucketConfig) return null;

@@ -69,8 +69,12 @@ export async function generateFileSummary(env: Env, fileId: string, content?: st
     textContent = await extractTextFromFile(env, file);
   }
 
-  if (!textContent || textContent.length < 50) {
-    return { summary: '', cached: false };
+  if (!textContent) {
+    throw new Error('无法获取文件内容，请检查文件存储配置');
+  }
+
+  if (textContent.length < 50) {
+    throw new Error('文件内容太短（少于50字符），无法生成摘要');
   }
 
   const truncatedContent = textContent.slice(0, 4096);
