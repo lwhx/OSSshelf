@@ -500,8 +500,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
         setAiSummary(res.data.data.summary);
         setAiSummaryAt(new Date().toISOString());
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to generate summary:', e);
+      const message = e?.response?.data?.error?.message || e?.message || '生成摘要失败';
+      alert(message);
     } finally {
       setIsGeneratingSummary(false);
     }
@@ -517,8 +519,10 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
         setAiSummary(res.data.data.caption);
         setAiSummaryAt(new Date().toISOString());
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to generate tags:', e);
+      const message = e?.response?.data?.error?.message || e?.message || '生成标签失败';
+      alert(message);
     } finally {
       setIsGeneratingTags(false);
     }

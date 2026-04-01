@@ -348,10 +348,9 @@ app.get('/file/:fileId', async (c) => {
 async function runBatchIndexTask(env: Env, userId: string, task: Record<string, unknown>): Promise<void> {
   const db = getDb(env.DB);
   const taskKey = `ai:index:task:${userId}`;
-  const batchSize = 10;
+  const concurrency = 5;
 
   try {
-    // 只索引有 AI 摘要的文件（与 autoProcessFile 逻辑一致）
     const allUnindexed = await db
       .select({ id: files.id })
       .from(files)
@@ -371,22 +370,35 @@ async function runBatchIndexTask(env: Env, userId: string, task: Record<string, 
     (task as any).failed = 0;
     await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
 
-    // 按批次处理，避免单次 waitUntil 超时
-    for (let i = 0; i < allUnindexed.length; i += batchSize) {
-      const batch = allUnindexed.slice(i, i + batchSize);
+    const indexFile = async (fileId: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const text = await buildFileTextForVector(env, fileId);
+        if (!text || text.trim().length === 0) {
+          return { success: false, error: 'Empty text content' };
+        }
+        await indexFileVector(env, fileId, text);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    };
 
-      for (const file of batch) {
-        try {
-          const text = await buildFileTextForVector(env, file.id);
-          await indexFileVector(env, file.id, text);
-          (task as any).processed = ((task as any).processed || 0) + 1;
-        } catch (error) {
+    for (let i = 0; i < allUnindexed.length; i += concurrency) {
+      const batch = allUnindexed.slice(i, i + concurrency);
+      const results = await Promise.allSettled(batch.map((f) => indexFile(f.id)));
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          if (result.value.success) {
+            (task as any).processed = ((task as any).processed || 0) + 1;
+          } else {
+            (task as any).failed = ((task as any).failed || 0) + 1;
+          }
+        } else {
           (task as any).failed = ((task as any).failed || 0) + 1;
-          console.error(`Failed to index file ${file.id}:`, error);
         }
       }
 
-      // 每批结束后更新进度
       (task as any).updatedAt = new Date().toISOString();
       await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
     }

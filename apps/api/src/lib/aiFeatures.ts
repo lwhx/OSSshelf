@@ -13,6 +13,7 @@ import { getDb, files } from '../db';
 import { eq } from 'drizzle-orm';
 import { getFileContent } from './utils';
 import { isEditableFile } from '@osshelf/shared';
+import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 
 const SUMMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct' as const;
 const IMAGE_CAPTION_MODEL = '@cf/llava-hf/llava-1.5-7b-hf' as const;
@@ -121,7 +122,7 @@ export async function generateImageTags(env: Env, fileId: string, imageBuffer?: 
   }
 
   if (!imageData) {
-    return { tags: [], caption: undefined };
+    throw new Error('无法获取图片数据，请检查文件存储配置');
   }
 
   const uint8Array = new Uint8Array(imageData);
@@ -271,12 +272,21 @@ async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): P
 }
 
 async function fetchFileContentAsBuffer(env: Env, file: typeof files.$inferSelect): Promise<ArrayBuffer | null> {
-  if (!file.bucketId || !file.r2Key) {
+  if (!file.bucketId) {
+    console.error(`File ${file.id} has no bucketId`);
+    return null;
+  }
+  if (!file.r2Key) {
+    console.error(`File ${file.id} has no r2Key`);
     return null;
   }
 
   try {
-    return await getFileContent(env, file.bucketId, file.r2Key);
+    const content = await getFileContent(env, file.bucketId, file.r2Key);
+    if (!content) {
+      console.error(`Failed to get content for file ${file.id} from bucket ${file.bucketId}, r2Key: ${file.r2Key}`);
+    }
+    return content;
   } catch (error) {
     console.error('Failed to fetch file content:', error);
     return null;
@@ -342,5 +352,16 @@ export async function autoProcessFile(env: Env, fileId: string): Promise<void> {
 
   if (tasks.length > 0) {
     await Promise.all(tasks);
+  }
+
+  if (env.VECTORIZE) {
+    try {
+      const text = await buildFileTextForVector(env, fileId);
+      if (text && text.trim().length > 0) {
+        await indexFileVector(env, fileId, text);
+      }
+    } catch (e) {
+      console.error(`Failed to auto index vector for ${fileId}:`, e);
+    }
   }
 }
