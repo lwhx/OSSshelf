@@ -462,32 +462,32 @@ ossshelf/
 
 ### API 路由概览
 
-| 路由前缀           | 说明              |
-| ------------------ | ----------------- |
-| `/api/auth`        | 用户认证          |
-| `/api/files`       | 文件管理          |
-| `/api/buckets`     | 存储桶管理        |
-| `/api/share`       | 文件分享          |
-| `/api/direct`      | 文件直链          |
-| `/api/presign`     | 预签名 URL        |
-| `/api/tasks`       | 上传任务          |
-| `/api/downloads`   | 离线下载          |
-| `/api/batch`       | 批量操作          |
-| `/api/search`      | 文件搜索          |
-| `/api/permissions` | 权限与标签        |
-| `/api/preview`     | 文件预览          |
-| `/api/versions`    | 版本控制 (v3.3.0) |
-| `/api/notes`       | 文件笔记 (v3.5.0) |
-| `/api/api-keys`    | API Keys 管理 (v3.5.0) |
-| `/api/groups`      | 用户组管理 (v3.6.0) |
-| `/api/webhooks`    | Webhook 管理 (v3.6.0) |
+| 路由前缀           | 说明                    |
+| ------------------ | ----------------------- |
+| `/api/auth`        | 用户认证                |
+| `/api/files`       | 文件管理                |
+| `/api/buckets`     | 存储桶管理              |
+| `/api/share`       | 文件分享                |
+| `/api/direct`      | 文件直链                |
+| `/api/presign`     | 预签名 URL              |
+| `/api/tasks`       | 上传任务                |
+| `/api/downloads`   | 离线下载                |
+| `/api/batch`       | 批量操作                |
+| `/api/search`      | 文件搜索                |
+| `/api/permissions` | 权限与标签              |
+| `/api/preview`     | 文件预览                |
+| `/api/versions`    | 版本控制 (v3.3.0)       |
+| `/api/notes`       | 文件笔记 (v3.5.0)       |
+| `/api/api-keys`    | API Keys 管理 (v3.5.0)  |
+| `/api/groups`      | 用户组管理 (v3.6.0)     |
+| `/api/webhooks`    | Webhook 管理 (v3.6.0)   |
 | `/api/v1`          | RESTful v1 API (v3.6.0) |
-| `/api/v1/docs`     | OpenAPI 文档 (v3.6.0) |
-| `/api/admin`       | 管理员接口        |
-| `/api/migrate`     | 存储桶迁移        |
-| `/api/telegram`    | Telegram 存储     |
-| `/cron`            | 定时任务          |
-| `/dav`             | WebDAV            |
+| `/api/v1/docs`     | OpenAPI 文档 (v3.6.0)   |
+| `/api/admin`       | 管理员接口              |
+| `/api/migrate`     | 存储桶迁移              |
+| `/api/telegram`    | Telegram 存储           |
+| `/cron`            | 定时任务                |
+| `/dav`             | WebDAV                  |
 
 ---
 

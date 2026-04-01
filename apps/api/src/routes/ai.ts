@@ -24,11 +24,7 @@ import {
   isAIConfigured,
   searchAndFetchFiles,
 } from '../lib/vectorIndex';
-import {
-  generateFileSummary,
-  generateImageTags,
-  suggestFileName,
-} from '../lib/aiFeatures';
+import { generateFileSummary, generateImageTags, suggestFileName } from '../lib/aiFeatures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -63,23 +59,14 @@ app.post('/index/batch', async (c) => {
   const { fileIds } = await c.req.json();
 
   if (!Array.isArray(fileIds) || fileIds.length === 0) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } }, 400);
   }
 
   const db = getDb(c.env.DB);
   const validFiles = await db
     .select({ id: files.id })
     .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        isNull(files.deletedAt),
-        eq(files.isFolder, false)
-      )
-    )
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
     .all();
 
   const validIds = new Set(validFiles.map((f) => f.id));
@@ -175,10 +162,7 @@ app.post('/index/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   if (file.isFolder) {
@@ -206,18 +190,12 @@ app.delete('/index/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   await deleteFileVector(c.env, fileId);
 
-  await db
-    .update(files)
-    .set({ vectorIndexedAt: null })
-    .where(eq(files.id, fileId));
+  await db.update(files).set({ vectorIndexedAt: null }).where(eq(files.id, fileId));
 
   return c.json({ success: true });
 });
@@ -258,10 +236,7 @@ app.post('/summarize/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   const result = await generateFileSummary(c.env, fileId);
@@ -281,17 +256,11 @@ app.post('/tags/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   if (!file.mimeType?.startsWith('image/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } }, 400);
   }
 
   const result = await generateImageTags(c.env, fileId);
@@ -311,10 +280,7 @@ app.post('/rename-suggest/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   const result = await suggestFileName(c.env, fileId);
@@ -334,10 +300,7 @@ app.get('/file/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   return c.json({
@@ -355,11 +318,7 @@ app.get('/file/:fileId', async (c) => {
   });
 });
 
-async function runBatchIndexTask(
-  env: Env,
-  userId: string,
-  task: Record<string, unknown>
-): Promise<void> {
+async function runBatchIndexTask(env: Env, userId: string, task: Record<string, unknown>): Promise<void> {
   const db = getDb(env.DB);
   const taskKey = `ai:index:task:${userId}`;
   const batchSize = 10;

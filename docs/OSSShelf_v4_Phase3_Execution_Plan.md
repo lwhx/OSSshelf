@@ -1,7 +1,7 @@
 # OSSShelf v4.0 第三批次执行计划
 
 > 基于《OSSShelf v4.0 增强优化方案》Phase 3，目标：AI 智能化（Workers AI + 语义搜索 + 文件总结）
-> 
+>
 > **状态：📋 计划中**
 > **目标版本：3.7.0**
 
@@ -15,12 +15,12 @@
 
 ### 现状分析
 
-| 模块 | 现状 | 目标 |
-|------|------|------|
-| AI 功能 | 无任何 AI 功能 | ✅ 集成 Workers AI，支持语义搜索、文件总结、图片标签 |
-| 搜索 | LIKE 关键词搜索 | ✅ 支持向量语义搜索，混合排序 |
-| 文件描述 | 有 description 字段但未使用 | ✅ AI 自动生成文件摘要 |
-| 向量存储 | 无 | ✅ 使用 Vectorize 存储文件向量 |
+| 模块     | 现状                        | 目标                                                 |
+| -------- | --------------------------- | ---------------------------------------------------- |
+| AI 功能  | 无任何 AI 功能              | ✅ 集成 Workers AI，支持语义搜索、文件总结、图片标签 |
+| 搜索     | LIKE 关键词搜索             | ✅ 支持向量语义搜索，混合排序                        |
+| 文件描述 | 有 description 字段但未使用 | ✅ AI 自动生成文件摘要                               |
+| 向量存储 | 无                          | ✅ 使用 Vectorize 存储文件向量                       |
 
 ---
 
@@ -31,6 +31,7 @@
 **重要说明**：AI 和 Vectorize 绑定是在 Cloudflare Dashboard 的 Worker 设置中**实时配置**的，而非 wrangler.toml 文件。这种方式更灵活，无需重新部署即可调整配置。
 
 **步骤一：创建 Vectorize 索引**
+
 ```bash
 # 创建向量索引（768 维，cosine 相似度）
 npx wrangler vectorize create osshelf-files --dimensions=768 --metric=cosine
@@ -55,8 +56,8 @@ export interface Env {
   DB: D1Database;
   FILES?: R2Bucket;
   KV: KVNamespace;
-  AI?: Ai;                         // AI 绑定（可选，未配置时功能降级）
-  VECTORIZE?: VectorizeIndex;      // Vectorize 绑定（可选）
+  AI?: Ai; // AI 绑定（可选，未配置时功能降级）
+  VECTORIZE?: VectorizeIndex; // Vectorize 绑定（可选）
   ENVIRONMENT: string;
   JWT_SECRET: string;
   PUBLIC_URL?: string;
@@ -65,6 +66,7 @@ export interface Env {
 ```
 
 **实现要点**：
+
 - AI 和 Vectorize 绑定设为可选，未配置时功能优雅降级
 - AI binding 类型来自 `@cloudflare/workers-types`
 - Vectorize binding 类型为 `VectorizeIndex`
@@ -77,6 +79,7 @@ export interface Env {
 **文件**：`apps/api/migrations/0013_ai_features.sql`
 
 **表结构修改**：
+
 ```sql
 -- files 表新增 AI 相关字段
 ALTER TABLE files ADD COLUMN ai_summary TEXT;           -- AI 生成的摘要
@@ -104,7 +107,7 @@ export const files = sqliteTable(
     aiTagsAt: text('ai_tags_at'),
     vectorIndexedAt: text('vector_indexed_at'),
     isStarred: integer('is_starred', { mode: 'boolean' }).default(false),
-  },
+  }
   // ... 索引
 );
 ```
@@ -116,12 +119,14 @@ export const files = sqliteTable(
 **文件**：`apps/api/src/lib/vectorIndex.ts`
 
 **功能**：
+
 - `indexFileVector()` - 为文件生成向量并存储到 Vectorize
 - `deleteFileVector()` - 从 Vectorize 删除文件向量
 - `searchSimilarFiles()` - 语义相似文件搜索
 - `batchIndexFiles()` - 批量索引文件
 
 **核心实现**：
+
 ```typescript
 import type { Env } from '../types/env';
 import { getDb, files, fileNotes } from '../db';
@@ -136,18 +141,14 @@ export interface VectorSearchResult {
   metadata?: Record<string, unknown>;
 }
 
-export async function indexFileVector(
-  env: Env,
-  fileId: string,
-  text: string
-): Promise<void> {
+export async function indexFileVector(env: Env, fileId: string, text: string): Promise<void> {
   if (!env.AI || !env.VECTORIZE) {
     console.warn('AI or VECTORIZE not configured, skipping vector indexing');
     return;
   }
 
   const truncatedText = text.slice(0, MAX_TEXT_LENGTH);
-  
+
   try {
     const { data } = await env.AI.run(EMBEDDING_MODEL, {
       text: [truncatedText],
@@ -159,7 +160,7 @@ export async function indexFileVector(
 
     const db = getDb(env.DB);
     const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-    
+
     if (!file) {
       throw new Error('File not found');
     }
@@ -177,10 +178,7 @@ export async function indexFileVector(
       },
     ]);
 
-    await db
-      .update(files)
-      .set({ vectorIndexedAt: new Date().toISOString() })
-      .where(eq(files.id, fileId));
+    await db.update(files).set({ vectorIndexedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   } catch (error) {
     console.error(`Failed to index file ${fileId}:`, error);
     throw error;
@@ -189,7 +187,7 @@ export async function indexFileVector(
 
 export async function deleteFileVector(env: Env, fileId: string): Promise<void> {
   if (!env.VECTORIZE) return;
-  
+
   try {
     await env.VECTORIZE.deleteByIds([fileId]);
   } catch (error) {
@@ -241,12 +239,9 @@ export async function searchSimilarFiles(
     }));
 }
 
-export async function buildFileTextForVector(
-  env: Env,
-  fileId: string
-): Promise<string> {
+export async function buildFileTextForVector(env: Env, fileId: string): Promise<string> {
   const db = getDb(env.DB);
-  
+
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) return '';
 
@@ -257,12 +252,9 @@ export async function buildFileTextForVector(
     .limit(5)
     .all();
 
-  const parts = [
-    file.name,
-    file.description || '',
-    file.aiSummary || '',
-    ...notes.map((n) => n.content),
-  ].filter(Boolean);
+  const parts = [file.name, file.description || '', file.aiSummary || '', ...notes.map((n) => n.content)].filter(
+    Boolean
+  );
 
   return parts.join('\n');
 }
@@ -275,12 +267,14 @@ export async function buildFileTextForVector(
 **文件**：`apps/api/src/lib/aiFeatures.ts`
 
 **功能**：
+
 - `generateFileSummary()` - 生成文件摘要
 - `generateImageTags()` - 图片自动标签
 - `suggestFileName()` - 智能重命名建议
 - `extractTextFromFile()` - 从文件提取文本
 
 **核心实现**：
+
 ```typescript
 import type { Env } from '../types/env';
 import { getDb, files } from '../db';
@@ -304,21 +298,17 @@ export interface RenameSuggestion {
   suggestions: string[];
 }
 
-export async function generateFileSummary(
-  env: Env,
-  fileId: string,
-  content?: string
-): Promise<SummaryResult> {
+export async function generateFileSummary(env: Env, fileId: string, content?: string): Promise<SummaryResult> {
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  
+
   if (!file) {
     throw new Error('File not found');
   }
 
   const cacheKey = `ai:summary:${fileId}:${file.hash || file.updatedAt}`;
   const cached = await env.KV.get(cacheKey);
-  
+
   if (cached) {
     return { summary: cached, cached: true };
   }
@@ -363,14 +353,10 @@ export async function generateFileSummary(
   return { summary, cached: false };
 }
 
-export async function generateImageTags(
-  env: Env,
-  fileId: string,
-  imageBuffer?: ArrayBuffer
-): Promise<ImageTagResult> {
+export async function generateImageTags(env: Env, fileId: string, imageBuffer?: ArrayBuffer): Promise<ImageTagResult> {
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  
+
   if (!file) {
     throw new Error('File not found');
   }
@@ -390,7 +376,7 @@ export async function generateImageTags(
     image: Array.from(uint8Array),
   });
 
-  const tags = parseImageTags((tagResult as any));
+  const tags = parseImageTags(tagResult as any);
 
   const captionResult = await env.AI.run(IMAGE_MODEL, {
     image: Array.from(uint8Array),
@@ -412,14 +398,10 @@ export async function generateImageTags(
   return { tags, caption };
 }
 
-export async function suggestFileName(
-  env: Env,
-  fileId: string,
-  content?: string
-): Promise<RenameSuggestion> {
+export async function suggestFileName(env: Env, fileId: string, content?: string): Promise<RenameSuggestion> {
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  
+
   if (!file) {
     throw new Error('File not found');
   }
@@ -460,17 +442,19 @@ export async function suggestFileName(
 }
 
 async function extractTextFromFile(env: Env, file: any): Promise<string> {
-  if (!file.mimeType?.startsWith('text/') && 
-      file.mimeType !== 'application/json' &&
-      file.mimeType !== 'application/xml' &&
-      !file.mimeType?.includes('javascript')) {
+  if (
+    !file.mimeType?.startsWith('text/') &&
+    file.mimeType !== 'application/json' &&
+    file.mimeType !== 'application/xml' &&
+    !file.mimeType?.includes('javascript')
+  ) {
     return '';
   }
 
   try {
     const content = await fetchFileContent(env, file);
     if (!content) return '';
-    
+
     const decoder = new TextDecoder('utf-8');
     return decoder.decode(content).slice(0, 4096);
   } catch {
@@ -486,13 +470,13 @@ async function fetchFileContent(env: Env, file: any): Promise<ArrayBuffer | null
 
 function parseImageTags(result: any): string[] {
   if (!result) return [];
-  
+
   const tags: string[] = [];
-  
+
   if (result.label) {
     tags.push(...result.label.split(',').map((t: string) => t.trim()));
   }
-  
+
   return [...new Set(tags)].slice(0, 5);
 }
 ```
@@ -504,6 +488,7 @@ function parseImageTags(result: any): string[] {
 **文件**：`apps/api/src/routes/ai.ts`
 
 **路由设计**：
+
 ```
 POST   /api/ai/index/:fileId        -- 手动触发单个文件向量化
 POST   /api/ai/index/batch          -- 批量向量化（指定文件列表）
@@ -518,6 +503,7 @@ GET    /api/ai/status/:fileId       -- 获取 AI 处理状态
 ```
 
 **核心实现**：
+
 ```typescript
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm';
@@ -526,17 +512,8 @@ import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import {
-  indexFileVector,
-  deleteFileVector,
-  searchSimilarFiles,
-  buildFileTextForVector,
-} from '../lib/vectorIndex';
-import {
-  generateFileSummary,
-  generateImageTags,
-  suggestFileName,
-} from '../lib/aiFeatures';
+import { indexFileVector, deleteFileVector, searchSimilarFiles, buildFileTextForVector } from '../lib/vectorIndex';
+import { generateFileSummary, generateImageTags, suggestFileName } from '../lib/aiFeatures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -560,10 +537,7 @@ app.post('/index/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   const text = await buildFileTextForVector(c.env, fileId);
@@ -596,7 +570,7 @@ app.post('/index/all', async (c) => {
 
   const taskKey = `ai:index:task:${userId}`;
   const existingTask = await c.env.KV.get(taskKey, 'json');
-  
+
   if (existingTask && (existingTask as any).status === 'running') {
     return c.json({
       success: false,
@@ -610,12 +584,9 @@ app.post('/index/all', async (c) => {
   const unindexedCount = await db
     .select({ count: sql<number>`count(*)` })
     .from(files)
-    .where(and(
-      eq(files.userId, userId),
-      isNull(files.deletedAt),
-      eq(files.isFolder, false),
-      isNull(files.vectorIndexedAt)
-    ))
+    .where(
+      and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false), isNull(files.vectorIndexedAt))
+    )
     .get();
 
   const task = {
@@ -630,9 +601,7 @@ app.post('/index/all', async (c) => {
 
   await c.env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
 
-  c.executionCtx.waitUntil(
-    runBatchIndexTask(c.env, userId, task)
-  );
+  c.executionCtx.waitUntil(runBatchIndexTask(c.env, userId, task));
 
   return c.json({
     success: true,
@@ -646,9 +615,9 @@ app.post('/index/all', async (c) => {
 app.get('/index/status', async (c) => {
   const userId = c.get('userId')!;
   const taskKey = `ai:index:task:${userId}`;
-  
+
   const task = await c.env.KV.get(taskKey, 'json');
-  
+
   if (!task) {
     return c.json({
       success: true,
@@ -662,11 +631,7 @@ app.get('/index/status', async (c) => {
   return c.json({ success: true, data: task });
 });
 
-async function runBatchIndexTask(
-  env: Env,
-  userId: string,
-  task: any
-): Promise<void> {
+async function runBatchIndexTask(env: Env, userId: string, task: any): Promise<void> {
   const db = getDb(env.DB);
   const taskKey = `ai:index:task:${userId}`;
   const batchSize = 10;
@@ -679,12 +644,14 @@ async function runBatchIndexTask(
       const unindexedFiles = await db
         .select({ id: files.id })
         .from(files)
-        .where(and(
-          eq(files.userId, userId),
-          isNull(files.deletedAt),
-          eq(files.isFolder, false),
-          isNull(files.vectorIndexedAt)
-        ))
+        .where(
+          and(
+            eq(files.userId, userId),
+            isNull(files.deletedAt),
+            eq(files.isFolder, false),
+            isNull(files.vectorIndexedAt)
+          )
+        )
         .limit(batchSize)
         .offset(offset)
         .all();
@@ -703,7 +670,7 @@ async function runBatchIndexTask(
           task.failed++;
           console.error(`Failed to index file ${file.id}:`, error);
         }
-        
+
         task.updatedAt = new Date().toISOString();
         await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
       }
@@ -786,10 +753,7 @@ app.post('/summarize/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   const result = await generateFileSummary(c.env, fileId);
@@ -809,17 +773,11 @@ app.post('/tags/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   if (!file.mimeType?.startsWith('image/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } }, 400);
   }
 
   const result = await generateImageTags(c.env, fileId);
@@ -839,10 +797,7 @@ app.post('/rename-suggest/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   const result = await suggestFileName(c.env, fileId);
@@ -862,10 +817,7 @@ app.get('/status/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   return c.json({
@@ -891,11 +843,13 @@ export default app;
 **修改文件**：`apps/api/src/routes/files.ts`
 
 **实现要点**：
+
 - 在文件上传完成后，使用 `c.executionCtx.waitUntil()` 异步触发向量化
 - 在文件内容更新后，重新生成向量
 - 在文件删除时，删除向量索引
 
 **关键代码位置**：
+
 ```typescript
 // 文件上传完成后
 import { indexFileVector, buildFileTextForVector } from '../lib/vectorIndex';
@@ -920,10 +874,12 @@ c.executionCtx.waitUntil(
 **修改文件**：`apps/api/src/routes/search.ts`
 
 **新增参数**：
+
 - `semantic: boolean` - 是否启用语义搜索
 - `hybrid: boolean` - 是否混合搜索（关键词 + 语义）
 
 **实现方案**：
+
 ```typescript
 // 在搜索路由中添加语义搜索支持
 if (searchParams.semantic && searchParams.query) {
@@ -949,6 +905,7 @@ if (searchParams.semantic && searchParams.query) {
 **目录**：`apps/web/src/components/ai/`
 
 **组件清单**：
+
 ```
 ├── SemanticSearchBar.tsx      -- 语义搜索输入框
 ├── SemanticSearchResults.tsx  -- 语义搜索结果展示
@@ -957,6 +914,7 @@ if (searchParams.semantic && searchParams.query) {
 ```
 
 **SemanticSearchBar.tsx 关键实现**：
+
 ```typescript
 import { useState } from 'react';
 import { Search, Sparkles, Loader2 } from 'lucide-react';
@@ -991,7 +949,7 @@ export function SemanticSearchBar({ onSearch, isLoading }: SemanticSearchBarProp
           className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2"
         />
       </div>
-      
+
       <div className="flex gap-1 border rounded-lg p-1">
         <Button
           variant={mode === 'keyword' ? 'default' : 'ghost'}
@@ -1034,11 +992,13 @@ export function SemanticSearchBar({ onSearch, isLoading }: SemanticSearchBarProp
 **文件**：`apps/web/src/components/ai/AISummaryCard.tsx`
 
 **功能**：
+
 - 显示 AI 生成的文件摘要
 - 支持手动触发摘要生成
 - 显示摘要生成时间
 
 **实现**：
+
 ```typescript
 import { useState } from 'react';
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react';
@@ -1122,11 +1082,13 @@ export function AISummaryCard({
 **文件**：`apps/web/src/components/ai/SmartRenameDialog.tsx`
 
 **功能**：
+
 - 显示 AI 生成的重命名建议
 - 支持一键采纳建议
 - 支持手动编辑
 
 **实现**：
+
 ```typescript
 import { useState, useEffect } from 'react';
 import { Sparkles, Check, Loader2 } from 'lucide-react';
@@ -1264,11 +1226,13 @@ export function SmartRenameDialog({
 **文件**：`apps/web/src/components/ai/ImageTagsDisplay.tsx`
 
 **功能**：
+
 - 显示 AI 生成的图片标签
 - 支持手动触发生成
 - 标签可点击筛选
 
 **实现**：
+
 ```typescript
 import { useState } from 'react';
 import { Tag, RefreshCw, Loader2 } from 'lucide-react';
@@ -1358,11 +1322,13 @@ export function ImageTagsDisplay({
 **修改文件**：`apps/web/src/components/files/FilePreview.tsx`
 
 **集成点**：
+
 1. 在文件预览侧边栏添加 AI 摘要卡片
 2. 对于图片文件，显示 AI 标签
 3. 在文件操作菜单添加"智能重命名"选项
 
 **关键改动**：
+
 ```typescript
 import { AISummaryCard } from '@/components/ai/AISummaryCard';
 import { ImageTagsDisplay } from '@/components/ai/ImageTagsDisplay';
@@ -1390,7 +1356,7 @@ const [showSmartRename, setShowSmartRename] = useState(false);
       // 更新文件信息
     }}
   />
-  
+
   {file.mimeType?.startsWith('image/') && (
     <ImageTagsDisplay
       fileId={file.id}
@@ -1427,15 +1393,19 @@ const [showSmartRename, setShowSmartRename] = useState(false);
 **文件**：`apps/web/src/services/api/ai.ts`
 
 **实现**：
+
 ```typescript
 import { apiClient } from './client';
 
 export const aiApi = {
-  search: async (query: string, options?: {
-    limit?: number;
-    threshold?: number;
-    mimeType?: string;
-  }) => {
+  search: async (
+    query: string,
+    options?: {
+      limit?: number;
+      threshold?: number;
+      mimeType?: string;
+    }
+  ) => {
     return apiClient.post('/api/ai/search', { query, ...options });
   },
 
@@ -1480,12 +1450,14 @@ export const aiApi = {
 **文件**：`apps/web/src/components/settings/AISettings.tsx`
 
 **功能**：
+
 - 显示 AI 功能状态（是否已配置）
 - 一键生成全量向量索引（带警告提示）
 - 实时显示索引任务进度
 - 查看 AI 功能使用统计
 
 **实现**：
+
 ```typescript
 import { useState, useEffect } from 'react';
 import { Sparkles, Database, RefreshCw, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
@@ -1700,6 +1672,7 @@ export function AISettings() {
 **修改文件**：`apps/api/src/routes/v1/search.ts`
 
 **新增路由**：
+
 ```typescript
 // 语义搜索路由
 const semanticSearchRoute = createRoute({
@@ -1766,12 +1739,14 @@ Week 8: AI 功能扩展
 ## 验收标准
 
 ### Workers AI 配置
+
 - [ ] AI 和 Vectorize 绑定在 Dashboard 正确配置
 - [ ] Vectorize 索引创建成功
 - [ ] Env 类型定义正确（可选绑定）
 - [ ] 未配置绑定时功能优雅降级
 
 ### 向量索引
+
 - [ ] 文件上传后自动生成向量索引
 - [ ] 向量索引可正常查询
 - [ ] 文件删除后向量索引同步删除
@@ -1781,28 +1756,33 @@ Week 8: AI 功能扩展
 - [ ] 索引进度可实时查询
 
 ### 语义搜索
+
 - [ ] 语义搜索返回相关结果
 - [ ] 混合搜索正确合并结果
 - [ ] 搜索结果按相似度排序
 - [ ] 前端搜索组件正常显示
 
 ### AI 摘要
+
 - [ ] 文本文件可生成摘要
 - [ ] 摘要缓存机制正常工作
 - [ ] 摘要显示在文件预览中
 - [ ] 可手动触发重新生成
 
 ### 图片标签
+
 - [ ] 图片上传后自动生成标签
 - [ ] 标签显示在文件预览中
 - [ ] 标签可点击筛选
 
 ### 智能重命名
+
 - [ ] 可生成重命名建议
 - [ ] 建议列表正常显示
 - [ ] 一键采纳功能正常
 
 ### AI 设置页面
+
 - [ ] 显示 AI 功能状态
 - [ ] 一键生成索引按钮正常
 - [ ] 警告提示正确显示
@@ -1864,7 +1844,7 @@ Week 8: AI 功能扩展
 ---
 
 > **当前版本：3.6.0**
-> 
+>
 > **已完成**：Phase 1（版本控制修复 + 备忘录基础 + API Key + 文件编辑）和 Phase 2（权限系统 v2 + RESTful v1 API + OpenAPI 文档 + Webhook）
-> 
+>
 > **下一步**：Phase 3（AI 智能化）将大幅提升用户体验，语义搜索是最具差异化的功能。

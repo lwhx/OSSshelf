@@ -14,12 +14,7 @@ interface ImageTagsDisplayProps {
   showGenerateButton?: boolean;
 }
 
-export function ImageTagsDisplay({
-  tags,
-  onGenerate,
-  isGenerating,
-  showGenerateButton,
-}: ImageTagsDisplayProps) {
+export function ImageTagsDisplay({ tags, onGenerate, isGenerating, showGenerateButton }: ImageTagsDisplayProps) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -28,13 +23,7 @@ export function ImageTagsDisplay({
           <span className="text-sm font-medium">AI 标签</span>
         </div>
         {showGenerateButton && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onGenerate}
-            disabled={isGenerating}
-            className="h-7 px-2"
-          >
+          <Button variant="ghost" size="sm" onClick={onGenerate} disabled={isGenerating} className="h-7 px-2">
             <RefreshCw className={cn('h-3.5 w-3.5', isGenerating && 'animate-spin')} />
             {tags && tags.length > 0 ? '重新生成' : '生成'}
           </Button>
@@ -44,10 +33,7 @@ export function ImageTagsDisplay({
       {tags && tags.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {tags.map((tag) => (
-            <span
-              key={tag}
-              className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-full"
-            >
+            <span key={tag} className="px-2 py-1 text-xs bg-secondary text-secondary-foreground rounded-full">
               {tag}
             </span>
           ))}

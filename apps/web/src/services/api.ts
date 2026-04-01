@@ -790,8 +790,7 @@ export const permissionsApi = {
   getUserTags: () => api.get<ApiResponse<FileTag[]>>('/api/permissions/tags/user'),
   getBatchFileTags: (fileIds: string[]) =>
     api.post<ApiResponse<Record<string, FileTag[]>>>('/api/permissions/tags/batch', { fileIds }),
-  getAllPermissions: () =>
-    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  getAllPermissions: () => api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
   revokeById: (permissionId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
   updatePermission: (permissionId: string, permission: 'read' | 'write' | 'admin', expiresAt?: string) =>
@@ -888,9 +887,12 @@ export const notesApi = {
   pin: (fileId: string, noteId: string) =>
     api.post<ApiResponse<{ isPinned: boolean; message: string }>>(`/api/notes/${fileId}/${noteId}/pin`),
   history: (fileId: string, noteId: string) =>
-    api.get<ApiResponse<{ current: { id: string; content: string; version: number }; history: Array<{ id: string; content: string; version: number; editedBy: string | null; createdAt: string }> }>>(
-      `/api/notes/${fileId}/${noteId}/history`
-    ),
+    api.get<
+      ApiResponse<{
+        current: { id: string; content: string; version: number };
+        history: Array<{ id: string; content: string; version: number; editedBy: string | null; createdAt: string }>;
+      }>
+    >(`/api/notes/${fileId}/${noteId}/history`),
   unreadMentions: () =>
     api.get<ApiResponse<Array<{ id: string; noteId: string; createdAt: string }>>>('/api/notes/mentions/unread'),
   markMentionRead: (mentionId: string) =>
@@ -960,10 +962,8 @@ export interface GroupMember {
 }
 
 export const groupsApi = {
-  list: () =>
-    api.get<ApiResponse<{ owned: UserGroup[]; memberOf: UserGroup[] }>>('/api/groups'),
-  create: (data: { name: string; description?: string }) =>
-    api.post<ApiResponse<UserGroup>>('/api/groups', data),
+  list: () => api.get<ApiResponse<{ owned: UserGroup[]; memberOf: UserGroup[] }>>('/api/groups'),
+  create: (data: { name: string; description?: string }) => api.post<ApiResponse<UserGroup>>('/api/groups', data),
   get: (id: string) => api.get<ApiResponse<UserGroup>>(`/api/groups/${id}`),
   update: (id: string, data: { name?: string; description?: string }) =>
     api.put<ApiResponse<{ message: string }>>(`/api/groups/${id}`, data),
@@ -1026,8 +1026,7 @@ export interface GlobalPermission {
 }
 
 export const globalPermissionsApi = {
-  getAll: () =>
-    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  getAll: () => api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
   revokeById: (permissionId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
   update: (permissionId: string, data: { permission: 'read' | 'write' | 'admin'; expiresAt?: string }) =>
@@ -1101,7 +1100,9 @@ export const aiApi = {
   indexFile: (fileId: string) => api.post<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
 
   indexBatch: (fileIds: string[]) =>
-    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', { fileIds }),
+    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', {
+      fileIds,
+    }),
 
   indexAll: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/all'),
 

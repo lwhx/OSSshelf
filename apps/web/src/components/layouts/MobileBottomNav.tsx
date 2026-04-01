@@ -40,6 +40,14 @@ const NAV_ITEMS = [
   { path: '/downloads', label: '下载', icon: Download, exact: false },
 ];
 
+const QUICK_ACTIONS = [
+  { path: '/tasks', label: '上传任务', icon: Upload },
+  { path: '/trash', label: '回收站', icon: Trash2, showBadge: true },
+  { path: '/buckets', label: '存储桶', icon: Database },
+  { path: '/permissions', label: '权限管理', icon: ShieldCheck },
+  { path: '/settings', label: '设置', icon: Settings },
+];
+
 interface MobileBottomNavProps {
   onUpload?: () => void;
   onNewFolder?: () => void;
@@ -150,54 +158,27 @@ export function MobileBottomNav({ onUpload, onNewFolder, onNavigate }: MobileBot
                   </>
                 )}
 
-                <NavLink
-                  to="/tasks"
-                  onClick={() => setShowQuickActions(false)}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                    <Upload className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <span className="text-xs text-muted-foreground">上传任务</span>
-                </NavLink>
-
-                <NavLink
-                  to="/trash"
-                  onClick={() => setShowQuickActions(false)}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center relative">
-                    <Trash2 className="h-5 w-5 text-muted-foreground" />
-                    {trashCount > 0 && (
-                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 text-[10px] font-medium bg-destructive text-destructive-foreground rounded-full flex items-center justify-center">
-                        {trashCount > 99 ? '99+' : trashCount}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted-foreground">回收站</span>
-                </NavLink>
-
-                <NavLink
-                  to="/buckets"
-                  onClick={() => setShowQuickActions(false)}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                    <Database className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <span className="text-xs text-muted-foreground">存储桶</span>
-                </NavLink>
-
-                <NavLink
-                  to="/settings"
-                  onClick={() => setShowQuickActions(false)}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                    <Settings className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <span className="text-xs text-muted-foreground">设置</span>
-                </NavLink>
+                {QUICK_ACTIONS.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <NavLink
+                      key={action.path}
+                      to={action.path}
+                      onClick={() => setShowQuickActions(false)}
+                      className="flex flex-col items-center gap-1"
+                    >
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center relative">
+                        <Icon className="h-5 w-5 text-muted-foreground" />
+                        {action.showBadge && trashCount > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 text-[10px] font-medium bg-destructive text-destructive-foreground rounded-full flex items-center justify-center">
+                            {trashCount > 99 ? '99+' : trashCount}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">{action.label}</span>
+                    </NavLink>
+                  );
+                })}
 
                 {user?.role === 'admin' && (
                   <NavLink

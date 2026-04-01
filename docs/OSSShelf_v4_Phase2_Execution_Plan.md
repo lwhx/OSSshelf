@@ -1,7 +1,7 @@
 # OSSShelf v4.0 第二批次执行计划
 
 > 基于《OSSShelf v4.0 增强优化方案》Phase 2，目标：权限系统 v2 + RESTful v1 API + OpenAPI 文档
-> 
+>
 > **状态：✅ 已完成**
 > **版本：3.6.0**
 
@@ -15,11 +15,11 @@
 
 ### 现状分析（已完成）
 
-| 模块 | 原现状 | 已解决问题 |
-|------|------|------|
+| 模块     | 原现状                                                          | 已解决问题                                                               |
+| -------- | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | 权限管控 | 有 `filePermissions` 表（read/write/admin），支持文件夹递归授权 | ✅ 支持组/角色概念；权限继承基于递归 CTE；支持时效性权限；权限检查已优化 |
-| API 开放 | 所有路由需 JWT auth，已支持 API Key 认证 | ✅ 已有 API 版本号，已有 OpenAPI 文档，已实现速率限制 |
-| Webhook | `webhooks` 表已存在 | ✅ 已实现事件分发逻辑 |
+| API 开放 | 所有路由需 JWT auth，已支持 API Key 认证                        | ✅ 已有 API 版本号，已有 OpenAPI 文档，已实现速率限制                    |
+| Webhook  | `webhooks` 表已存在                                             | ✅ 已实现事件分发逻辑                                                    |
 
 ### Phase 1 完成确认（✅ 已完成）
 
@@ -37,6 +37,7 @@
 **文件**：`apps/api/migrations/0012_permission_v2.sql`
 
 **表结构**：
+
 ```sql
 -- 用户组
 CREATE TABLE IF NOT EXISTS user_groups (
@@ -76,6 +77,7 @@ CREATE INDEX idx_file_permissions_scope   ON file_permissions(scope);
 ```
 
 **实现要点**：
+
 - D1 不支持事务性 DDL，迁移失败需手动回滚
 - 先创建新表，再添加 ALTER 语句
 - 为现有数据设置默认值
@@ -85,12 +87,15 @@ CREATE INDEX idx_file_permissions_scope   ON file_permissions(scope);
 **修改文件**：`apps/api/src/db/schema.ts`
 
 **新增表定义**：
+
 ```typescript
 export const userGroups = sqliteTable(
   'user_groups',
   {
     id: text('id').primaryKey(),
-    ownerId: text('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description'),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
@@ -105,8 +110,12 @@ export const groupMembers = sqliteTable(
   'group_members',
   {
     id: text('id').primaryKey(),
-    groupId: text('group_id').notNull().references(() => userGroups.id, { onDelete: 'cascade' }),
-    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     role: text('role').notNull().default('member'),
     addedBy: text('added_by').references(() => users.id),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
@@ -120,6 +129,7 @@ export const groupMembers = sqliteTable(
 ```
 
 **修改 filePermissions 表**：
+
 ```typescript
 export const filePermissions = sqliteTable(
   'file_permissions',
@@ -131,7 +141,7 @@ export const filePermissions = sqliteTable(
     inheritToChildren: integer('inherit_to_children', { mode: 'boolean' }).notNull().default(true),
     scope: text('scope').notNull().default('explicit'),
     sourcePermissionId: text('source_permission_id').references(() => filePermissions.id),
-  },
+  }
   // ... 索引
 );
 ```
@@ -141,12 +151,14 @@ export const filePermissions = sqliteTable(
 **文件**：`apps/api/src/lib/permissionResolver.ts`
 
 **功能**：
+
 - `resolveEffectivePermission()` - 解析有效权限（递归 CTE 方案）
 - `checkPermissionWithCache()` - 带缓存的权限检查
 - `invalidatePermissionCache()` - 权限缓存失效
 - `propagatePermissionToChildren()` - 权限传播到子文件
 
 **核心实现**：
+
 ```typescript
 export interface PermissionResolution {
   hasAccess: boolean;
@@ -179,32 +191,30 @@ export async function checkPermissionWithCache(
   requiredLevel: PermissionLevel
 ): Promise<PermissionResolution> {
   const cacheKey = `perm:${fileId}:${userId}`;
-  
+
   // 1. 尝试从 KV 缓存获取
   const cached = await env.KV.get(cacheKey);
   if (cached) {
     return JSON.parse(cached);
   }
-  
+
   // 2. 解析权限
   const result = await resolveEffectivePermission(db, env, fileId, userId, requiredLevel);
-  
+
   // 3. 写入缓存（TTL 5 分钟）
   await env.KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 300 });
-  
+
   return result;
 }
 
-export async function invalidatePermissionCache(
-  env: Env,
-  fileId: string
-): Promise<void> {
+export async function invalidatePermissionCache(env: Env, fileId: string): Promise<void> {
   // 删除该文件相关的所有权限缓存
   // 使用 KV 的 list 功能批量删除
 }
 ```
 
 **递归 CTE 查询示例**：
+
 ```sql
 WITH RECURSIVE ancestors AS (
   SELECT id, parent_id, 0 AS depth FROM files WHERE id = ?
@@ -218,7 +228,7 @@ JOIN ancestors a ON fp.file_id = a.id
 WHERE (fp.user_id = ? OR fp.group_id IN (...))
   AND (fp.expires_at IS NULL OR fp.expires_at > CURRENT_TIMESTAMP)
   AND fp.inherit_to_children = 1
-ORDER BY a.depth ASC, 
+ORDER BY a.depth ASC,
   CASE fp.permission WHEN 'admin' THEN 3 WHEN 'write' THEN 2 ELSE 1 END DESC
 LIMIT 1;
 ```
@@ -228,6 +238,7 @@ LIMIT 1;
 **文件**：`apps/api/src/routes/groups.ts`
 
 **路由设计**：
+
 ```
 GET    /api/groups                    -- 列出用户拥有的组
 POST   /api/groups                    -- 创建新组
@@ -241,15 +252,16 @@ PUT    /api/groups/:id/members/:userId/role -- 更新成员角色
 ```
 
 **关键实现**：
+
 ```typescript
 // 创建组
 app.post('/', async (c) => {
   const userId = c.get('userId')!;
   const { name, description } = await c.req.json();
-  
+
   const groupId = crypto.randomUUID();
   const now = new Date().toISOString();
-  
+
   await db.insert(userGroups).values({
     id: groupId,
     ownerId: userId,
@@ -258,7 +270,7 @@ app.post('/', async (c) => {
     createdAt: now,
     updatedAt: now,
   });
-  
+
   // 创建者自动成为组管理员
   await db.insert(groupMembers).values({
     id: crypto.randomUUID(),
@@ -268,7 +280,7 @@ app.post('/', async (c) => {
     addedBy: userId,
     createdAt: now,
   });
-  
+
   return c.json({ success: true, data: { id: groupId, name, description } });
 });
 
@@ -277,17 +289,18 @@ app.post('/:id/members', async (c) => {
   const userId = c.get('userId')!;
   const groupId = c.req.param('id');
   const { userId: targetUserId, role = 'member' } = await c.req.json();
-  
+
   // 检查操作者是否是组管理员
-  const membership = await db.select()
+  const membership = await db
+    .select()
     .from(groupMembers)
     .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
     .get();
-  
+
   if (!membership || membership.role !== 'admin') {
     throwAppError('FORBIDDEN', '只有组管理员可以添加成员');
   }
-  
+
   // 添加成员
   await db.insert(groupMembers).values({
     id: crypto.randomUUID(),
@@ -297,7 +310,7 @@ app.post('/:id/members', async (c) => {
     addedBy: userId,
     createdAt: new Date().toISOString(),
   });
-  
+
   return c.json({ success: true, data: { message: '成员已添加' } });
 });
 ```
@@ -311,6 +324,7 @@ app.post('/:id/members', async (c) => {
 **目录**：`apps/web/src/components/groups/`
 
 **组件清单**：
+
 ```
 ├── GroupList.tsx           -- 用户组列表
 ├── GroupCreateDialog.tsx   -- 创建组弹窗
@@ -321,6 +335,7 @@ app.post('/:id/members', async (c) => {
 ```
 
 **GroupList.tsx 关键实现**：
+
 ```typescript
 export function GroupList() {
   const { data: groups, isLoading } = useQuery({
@@ -337,7 +352,7 @@ export function GroupList() {
           创建组
         </Button>
       </div>
-      
+
       {groups?.map(group => (
         <GroupCard key={group.id} group={group} />
       ))}
@@ -351,12 +366,14 @@ export function GroupList() {
 **修改文件**：`apps/web/src/components/files/permissions/FilePermissionManager.tsx`
 
 **新增功能**：
+
 1. 支持选择用户或组进行授权
 2. 支持设置过期时间
 3. 显示权限来源（显式/继承）
 4. 显示继承路径提示
 
 **关键改动**：
+
 ```typescript
 interface PermissionGrantFormData {
   subjectType: 'user' | 'group';
@@ -370,9 +387,9 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
   const [subjectType, setSubjectType] = useState<'user' | 'group'>('user');
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string>('');
-  
+
   // ... 现有逻辑
-  
+
   return (
     <div className="space-y-4">
       {/* 授权类型选择 */}
@@ -392,7 +409,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
           用户组
         </Button>
       </div>
-      
+
       {/* 过期时间设置 */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium">过期时间（可选）</label>
@@ -402,7 +419,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
           onChange={(e) => setExpiresAt(e.target.value)}
         />
       </div>
-      
+
       {/* 权限列表 */}
       {permissions.map(perm => (
         <PermissionCard
@@ -445,27 +462,29 @@ export function InheritedPermBadge({ sourceFilePath, sourcePermission }: Inherit
 **修改文件**：`apps/api/src/routes/permissions.ts`
 
 **新增/修改路由**：
+
 ```typescript
 // 扩展授权接口
 app.post('/grant', async (c) => {
   const { fileId, userId, groupId, permission, expiresAt, subjectType = 'user' } = await c.req.json();
-  
+
   // 验证权限
   if (subjectType === 'group') {
     // 检查组是否存在且用户是组管理员
     const group = await db.select().from(userGroups).where(eq(userGroups.id, groupId)).get();
     if (!group) throwAppError('GROUP_NOT_FOUND', '用户组不存在');
-    
-    const membership = await db.select()
+
+    const membership = await db
+      .select()
       .from(groupMembers)
       .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
       .get();
-    
+
     if (!membership || membership.role !== 'admin') {
       throwAppError('FORBIDDEN', '只有组管理员可以授权');
     }
   }
-  
+
   // 创建权限记录
   await db.insert(filePermissions).values({
     id: crypto.randomUUID(),
@@ -481,10 +500,10 @@ app.post('/grant', async (c) => {
     createdAt: now,
     updatedAt: now,
   });
-  
+
   // 使权限缓存失效
   await invalidatePermissionCache(env, fileId);
-  
+
   return c.json({ success: true });
 });
 
@@ -492,9 +511,9 @@ app.post('/grant', async (c) => {
 app.get('/file/:fileId/resolve', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
-  
+
   const resolution = await resolveEffectivePermission(db, env, fileId, userId, 'read');
-  
+
   return c.json({
     success: true,
     data: resolution,
@@ -507,6 +526,7 @@ app.get('/file/:fileId/resolve', async (c) => {
 **修改文件**：`apps/api/src/routes/permissions.ts`
 
 在权限操作后记录审计日志：
+
 ```typescript
 await createAuditLog({
   env: c.env,
@@ -534,6 +554,7 @@ await createAuditLog({
 ### 任务 6.1：安装 OpenAPI 相关依赖（✅ 已完成）
 
 **执行命令**：
+
 ```bash
 pnpm add @hono/zod-openapi zod
 ```
@@ -581,9 +602,7 @@ app.doc('/openapi.json', {
     version: '1.0.0',
     description: 'OSSShelf 文件管理系统 RESTful API',
   },
-  servers: [
-    { url: '/api/v1', description: '当前服务器' },
-  ],
+  servers: [{ url: '/api/v1', description: '当前服务器' }],
 });
 
 // Swagger UI
@@ -675,10 +694,10 @@ const listFilesRoute = createRoute({
 app.openapi(listFilesRoute, async (c) => {
   const userId = c.get('userId')!;
   const { parentId, page = '1', limit = '50', type } = c.req.valid('query');
-  
+
   // 实现文件列表逻辑
   const files = await getFiles(db, userId, parentId, parseInt(page), parseInt(limit), type);
-  
+
   return c.json({
     success: true,
     data: files,
@@ -787,7 +806,7 @@ app.route('/api/v1', v1Routes);
 **文件**：`apps/api/src/lib/webhook.ts`
 
 ```typescript
-export type WebhookEvent = 
+export type WebhookEvent =
   | 'file.uploaded'
   | 'file.deleted'
   | 'file.updated'
@@ -809,27 +828,24 @@ export async function dispatchWebhook(
   data: Record<string, unknown>
 ): Promise<void> {
   const db = getDb(env.DB);
-  
+
   // 获取用户的所有活跃 webhook
   const webhooks = await db
     .select()
     .from(webhooks)
-    .where(and(
-      eq(webhooks.userId, userId),
-      eq(webhooks.isActive, true)
-    ))
+    .where(and(eq(webhooks.userId, userId), eq(webhooks.isActive, true)))
     .all();
-  
+
   for (const webhook of webhooks) {
     const events = JSON.parse(webhook.events) as WebhookEvent[];
     if (!events.includes(event)) continue;
-    
+
     const payload: WebhookPayload = {
       event,
       timestamp: new Date().toISOString(),
       data,
     };
-    
+
     // 异步发送
     sendWebhookRequest(env, webhook, payload).catch((error) => {
       console.error(`Webhook ${webhook.id} failed:`, error);
@@ -844,7 +860,7 @@ async function sendWebhookRequest(
 ): Promise<void> {
   const body = JSON.stringify(payload);
   const signature = await hmacSha256(webhook.secret, body);
-  
+
   try {
     const response = await fetch(webhook.url, {
       method: 'POST',
@@ -855,15 +871,11 @@ async function sendWebhookRequest(
       },
       body,
     });
-    
+
     // 更新 webhook 状态
-    await db.update(webhooks)
-      .set({ lastStatus: response.status })
-      .where(eq(webhooks.id, webhook.id));
+    await db.update(webhooks).set({ lastStatus: response.status }).where(eq(webhooks.id, webhook.id));
   } catch (error) {
-    await db.update(webhooks)
-      .set({ lastStatus: 0 })
-      .where(eq(webhooks.id, webhook.id));
+    await db.update(webhooks).set({ lastStatus: 0 }).where(eq(webhooks.id, webhook.id));
     throw error;
   }
 }
@@ -872,18 +884,12 @@ async function hmacSha256(secret: string, data: string): Promise<string> {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret);
   const messageData = encoder.encode(data);
-  
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  
+
+  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+
   const signature = await crypto.subtle.sign('HMAC', key, messageData);
   return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 ```
@@ -923,17 +929,17 @@ const createWebhookSchema = z.object({
 app.get('/', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
-  
+
   const hooks = await db
     .select()
     .from(webhooks)
     .where(eq(webhooks.userId, userId))
     .orderBy(desc(webhooks.createdAt))
     .all();
-  
+
   return c.json({
     success: true,
-    data: hooks.map(h => ({
+    data: hooks.map((h) => ({
       ...h,
       events: JSON.parse(h.events),
     })),
@@ -944,31 +950,34 @@ app.post('/', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
   const result = createWebhookSchema.safeParse(body);
-  
+
   if (!result.success) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
       400
     );
   }
-  
+
   const { url, events } = result.data;
-  
+
   // 验证事件类型
-  const invalidEvents = events.filter(e => !VALID_EVENTS.includes(e));
+  const invalidEvents = events.filter((e) => !VALID_EVENTS.includes(e));
   if (invalidEvents.length > 0) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+      },
       400
     );
   }
-  
+
   // 生成密钥
   const secret = generateSecret();
-  
+
   const webhookId = crypto.randomUUID();
   const now = new Date().toISOString();
-  
+
   const db = getDb(c.env.DB);
   await db.insert(webhooks).values({
     id: webhookId,
@@ -980,7 +989,7 @@ app.post('/', async (c) => {
     lastStatus: null,
     createdAt: now,
   });
-  
+
   return c.json({
     success: true,
     data: {
@@ -997,26 +1006,28 @@ app.delete('/:id', async (c) => {
   const userId = c.get('userId')!;
   const webhookId = c.req.param('id');
   const db = getDb(c.env.DB);
-  
+
   const webhook = await db
     .select()
     .from(webhooks)
     .where(and(eq(webhooks.id, webhookId), eq(webhooks.userId, userId)))
     .get();
-  
+
   if (!webhook) {
     throwAppError('WEBHOOK_NOT_FOUND', 'Webhook 不存在');
   }
-  
+
   await db.delete(webhooks).where(eq(webhooks.id, webhookId));
-  
+
   return c.json({ success: true, data: { message: 'Webhook 已删除' } });
 });
 
 function generateSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 export default app;
@@ -1027,6 +1038,7 @@ export default app;
 **目录**：`apps/web/src/components/webhooks/`
 
 **新增组件**：
+
 ```
 ├── WebhookList.tsx         -- Webhook 列表
 ├── WebhookCreateDialog.tsx -- 创建 Webhook 弹窗
@@ -1067,6 +1079,7 @@ Week 6: RESTful v1 API + OpenAPI
 ## 验收标准
 
 ### 权限系统 v2
+
 - [x] 可创建/管理用户组
 - [x] 可为组添加/移除成员
 - [x] 可为用户或组授予文件权限
@@ -1077,13 +1090,15 @@ Week 6: RESTful v1 API + OpenAPI
 - [x] 前端权限管理 UI 正常显示和交互
 
 ### RESTful v1 API
-- [x] /api/v1/* 路由正常工作
+
+- [x] /api/v1/\* 路由正常工作
 - [x] OpenAPI 文档可访问（/api/v1/openapi.json）
 - [x] Swagger UI 正常显示（/api/v1/docs）
 - [x] API Key 认证正常工作
 - [x] 所有端点有完整的请求/响应 schema
 
 ### Webhook
+
 - [x] 可创建/删除 Webhook
 - [x] 文件事件正确触发 Webhook
 - [x] Webhook 签名验证正确
@@ -1103,7 +1118,7 @@ Week 6: RESTful v1 API + OpenAPI
    - 权限变更时需要正确失效缓存
 
 3. **API 兼容性**：
-   - v1 API 应与现有 /api/* 路由共存
+   - v1 API 应与现有 /api/\* 路由共存
    - 保持向后兼容，不破坏现有功能
 
 4. **Webhook 安全**：

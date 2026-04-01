@@ -30,13 +30,7 @@ export function AISummaryCard({
           <span className="text-sm font-medium">AI 摘要</span>
         </div>
         {showGenerateButton && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onGenerate}
-            disabled={isGenerating}
-            className="h-7 px-2"
-          >
+          <Button variant="ghost" size="sm" onClick={onGenerate} disabled={isGenerating} className="h-7 px-2">
             <RefreshCw className={cn('h-3.5 w-3.5', isGenerating && 'animate-spin')} />
             {summary ? '重新生成' : '生成'}
           </Button>
@@ -45,11 +39,7 @@ export function AISummaryCard({
       {summary ? (
         <>
           <p className="text-sm text-muted-foreground">{summary}</p>
-          {summaryAt && (
-            <p className="text-xs text-muted-foreground">
-              生成于 {formatDate(summaryAt)}
-            </p>
-          )}
+          {summaryAt && <p className="text-xs text-muted-foreground">生成于 {formatDate(summaryAt)}</p>}
         </>
       ) : showGenerateButton ? (
         <p className="text-sm text-muted-foreground">暂无摘要，点击生成</p>

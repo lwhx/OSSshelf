@@ -388,34 +388,34 @@ ossshelf/
 
 #### file_permissions (文件权限表) - v3.6.0 扩展
 
-| 字段                | 类型 | 默认值    | 说明                         |
-| ------------------- | ---- | --------- | ---------------------------- |
-| `id`                | TEXT | -         | 主键                         |
-| `fileId`            | TEXT | -         | 文件 ID (外键 → files)       |
-| `userId`            | TEXT | -         | 用户 ID (外键 → users，可空) |
-| `groupId`           | TEXT | -         | 组 ID (外键 → user_groups，可空) |
-| `subjectType`       | TEXT | 'user'    | 主体类型 (user/group)        |
-| `permission`        | TEXT | 'read'    | 权限 (read/write/admin)      |
-| `grantedBy`         | TEXT | -         | 授权人 ID (外键 → users)     |
-| `expiresAt`         | TEXT | -         | 过期时间（可选）             |
-| `inheritToChildren` | BOOL | true      | 是否继承到子文件             |
-| `scope`             | TEXT | 'explicit'| 权限来源 (explicit/inherited)|
-| `sourcePermissionId`| TEXT | -         | 来源权限 ID（继承时）        |
-| `createdAt`         | TEXT | -         | 创建时间                     |
-| `updatedAt`         | TEXT | -         | 更新时间                     |
+| 字段                 | 类型 | 默认值     | 说明                             |
+| -------------------- | ---- | ---------- | -------------------------------- |
+| `id`                 | TEXT | -          | 主键                             |
+| `fileId`             | TEXT | -          | 文件 ID (外键 → files)           |
+| `userId`             | TEXT | -          | 用户 ID (外键 → users，可空)     |
+| `groupId`            | TEXT | -          | 组 ID (外键 → user_groups，可空) |
+| `subjectType`        | TEXT | 'user'     | 主体类型 (user/group)            |
+| `permission`         | TEXT | 'read'     | 权限 (read/write/admin)          |
+| `grantedBy`          | TEXT | -          | 授权人 ID (外键 → users)         |
+| `expiresAt`          | TEXT | -          | 过期时间（可选）                 |
+| `inheritToChildren`  | BOOL | true       | 是否继承到子文件                 |
+| `scope`              | TEXT | 'explicit' | 权限来源 (explicit/inherited)    |
+| `sourcePermissionId` | TEXT | -          | 来源权限 ID（继承时）            |
+| `createdAt`          | TEXT | -          | 创建时间                         |
+| `updatedAt`          | TEXT | -          | 更新时间                         |
 
 **索引**: `idx_file_permissions_file`, `idx_file_permissions_user`, `idx_file_permissions_group`, `idx_file_permissions_expires`, `idx_file_permissions_scope`, `idx_file_permissions_unique` (唯一)
 
 #### user_groups (用户组表) - v3.6.0
 
-| 字段        | 类型 | 默认值 | 说明                   |
-| ----------- | ---- | ------ | ---------------------- |
-| `id`        | TEXT | -      | 主键                   |
-| `ownerId`   | TEXT | -      | 所有者 ID (外键 → users) |
-| `name`      | TEXT | -      | 组名称                 |
-| `description`| TEXT| -      | 描述                   |
-| `createdAt` | TEXT | -      | 创建时间               |
-| `updatedAt` | TEXT | -      | 更新时间               |
+| 字段          | 类型 | 默认值 | 说明                     |
+| ------------- | ---- | ------ | ------------------------ |
+| `id`          | TEXT | -      | 主键                     |
+| `ownerId`     | TEXT | -      | 所有者 ID (外键 → users) |
+| `name`        | TEXT | -      | 组名称                   |
+| `description` | TEXT | -      | 描述                     |
+| `createdAt`   | TEXT | -      | 创建时间                 |
+| `updatedAt`   | TEXT | -      | 更新时间                 |
 
 **索引**: `idx_user_groups_owner`
 
@@ -434,16 +434,16 @@ ossshelf/
 
 #### webhooks (Webhook 表) - v3.6.0
 
-| 字段        | 类型 | 默认值 | 说明                       |
-| ----------- | ---- | ------ | -------------------------- |
-| `id`        | TEXT | -      | 主键                       |
-| `userId`    | TEXT | -      | 用户 ID (外键 → users)     |
-| `url`       | TEXT | -      | Webhook URL                |
-| `secret`    | TEXT | -      | 签名密钥                   |
-| `events`    | TEXT | -      | 订阅事件 (JSON 数组)       |
-| `isActive`  | BOOL | true   | 是否启用                   |
-| `lastStatus`| INT  | -      | 最后响应状态码             |
-| `createdAt` | TEXT | -      | 创建时间                   |
+| 字段         | 类型 | 默认值 | 说明                   |
+| ------------ | ---- | ------ | ---------------------- |
+| `id`         | TEXT | -      | 主键                   |
+| `userId`     | TEXT | -      | 用户 ID (外键 → users) |
+| `url`        | TEXT | -      | Webhook URL            |
+| `secret`     | TEXT | -      | 签名密钥               |
+| `events`     | TEXT | -      | 订阅事件 (JSON 数组)   |
+| `isActive`   | BOOL | true   | 是否启用               |
+| `lastStatus` | INT  | -      | 最后响应状态码         |
+| `createdAt`  | TEXT | -      | 创建时间               |
 
 **索引**: `idx_webhooks_user`, `idx_webhooks_active`
 

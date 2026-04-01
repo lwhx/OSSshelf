@@ -44,11 +44,14 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   }, []);
 
   useEffect(() => {
-    aiApi.getStatus().then((res) => {
-      setAiConfigured(res.data.data?.configured ?? false);
-    }).catch(() => {
-      setAiConfigured(false);
-    });
+    aiApi
+      .getStatus()
+      .then((res) => {
+        setAiConfigured(res.data.data?.configured ?? false);
+      })
+      .catch(() => {
+        setAiConfigured(false);
+      });
   }, []);
 
   const { data: searchResults } = useQuery<FileItem[]>({

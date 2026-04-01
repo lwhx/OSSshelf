@@ -29,6 +29,7 @@ import {
   User,
   Upload,
   Link,
+  History as HistoryIcon,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 
@@ -49,6 +50,7 @@ export function GridItem({
   onTagClick,
   onUploadLink,
   onDirectLink,
+  onVersionHistory,
 }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
@@ -120,6 +122,11 @@ export function GridItem({
           {!file.isFolder && onDirectLink && (
             <ActionBtn title="直链管理" onClick={() => onDirectLink(file)}>
               <Link className="h-3.5 w-3.5" />
+            </ActionBtn>
+          )}
+          {!file.isFolder && onVersionHistory && (
+            <ActionBtn title="版本历史" onClick={() => onVersionHistory(file)}>
+              <HistoryIcon className="h-3.5 w-3.5" />
             </ActionBtn>
           )}
           <ActionBtn title="重命名" onClick={() => onRename(file)}>

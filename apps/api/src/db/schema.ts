@@ -212,8 +212,7 @@ export const filePermissions = sqliteTable(
     fileId: text('file_id')
       .notNull()
       .references(() => files.id, { onDelete: 'cascade' }),
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     permission: text('permission').notNull().default('read'),
     grantedBy: text('granted_by')
       .notNull()

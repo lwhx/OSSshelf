@@ -30,6 +30,7 @@ import {
   Upload,
   FolderOpen,
   Link,
+  History as HistoryIcon,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 
@@ -49,6 +50,7 @@ export function ListItem({
   onTagClick,
   onUploadLink,
   onDirectLink,
+  onVersionHistory,
 }: ItemProps) {
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const { isMobile } = useResponsive();
@@ -145,6 +147,11 @@ export function ListItem({
             {!file.isFolder && onDirectLink && (
               <ActionBtn title="直链" onClick={() => onDirectLink(file)}>
                 <Link className="h-3.5 w-3.5" />
+              </ActionBtn>
+            )}
+            {!file.isFolder && onVersionHistory && (
+              <ActionBtn title="版本" onClick={() => onVersionHistory(file)}>
+                <HistoryIcon className="h-3.5 w-3.5" />
               </ActionBtn>
             )}
             {file.isFolder && onUploadLink && (

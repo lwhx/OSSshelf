@@ -1,7 +1,7 @@
 # OSSShelf v4.0 第一批次执行计划
 
 > 基于《OSSShelf v4.0 增强优化方案》Phase 1，目标：基础稳固（版本控制修复 + 备忘录基础 + API Key 机制 + 文件编辑）
-> 
+>
 > **状态：✅ 已完成**
 > **版本：3.5.0**
 
@@ -15,12 +15,12 @@
 
 ### 现状分析（已完成）
 
-| 模块 | 原现状 | 已解决问题 |
-|------|------|------|
-| 版本控制 | `fileVersions` 表已存在，路由已实现 | ✅ 文件更新时自动版本快照；maxVersions 限制已执行；版本清理 cron 已优化 |
-| 备忘录/笔记 | 几乎缺失 | ✅ 已完成建设 |
-| API 开放 | 仅支持 JWT 认证 | ✅ 已实现 API Key 机制 |
-| 文件编辑 | 仅支持新建文本文件 | ✅ 支持编辑已存在文件；支持在线编辑器 |
+| 模块        | 原现状                              | 已解决问题                                                              |
+| ----------- | ----------------------------------- | ----------------------------------------------------------------------- |
+| 版本控制    | `fileVersions` 表已存在，路由已实现 | ✅ 文件更新时自动版本快照；maxVersions 限制已执行；版本清理 cron 已优化 |
+| 备忘录/笔记 | 几乎缺失                            | ✅ 已完成建设                                                           |
+| API 开放    | 仅支持 JWT 认证                     | ✅ 已实现 API Key 机制                                                  |
+| 文件编辑    | 仅支持新建文本文件                  | ✅ 支持编辑已存在文件；支持在线编辑器                                   |
 
 ---
 
@@ -31,11 +31,13 @@
 **文件**：`apps/api/src/lib/versionManager.ts`
 
 **功能**：
+
 - `createVersionSnapshot()` - 创建版本快照
 - `pruneExcessVersions()` - 裁剪超量版本
 - `checkAndCreateVersion()` - 检查并自动创建版本
 
 **实现要点**：
+
 ```typescript
 // 核心逻辑
 export async function createVersionSnapshot(
@@ -50,12 +52,7 @@ export async function createVersionSnapshot(
   // 4. 更新 files.currentVersion
 }
 
-export async function pruneExcessVersions(
-  db: DrizzleDb,
-  env: Env,
-  fileId: string,
-  maxVersions: number
-): Promise<void> {
+export async function pruneExcessVersions(db: DrizzleDb, env: Env, fileId: string, maxVersions: number): Promise<void> {
   // 查最老的超量版本 → 递减 ref_count → ref_count=0 则加入 R2 删除队列
 }
 ```
@@ -65,11 +62,13 @@ export async function pruneExcessVersions(
 **修改文件**：`apps/api/src/routes/files.ts`
 
 **触发时机**：
+
 1. 文件内容更新（新增编辑接口）
 2. 预签名上传完成回调
 3. WebDAV PUT
 
 **实现方案**：
+
 - 在文件内容更新后调用 `createVersionSnapshot()`
 - 需要区分"新建文件"和"更新文件"场景
 
@@ -78,10 +77,12 @@ export async function pruneExcessVersions(
 **修改文件**：`apps/api/src/routes/cron.ts`
 
 **现有问题**：
+
 - 版本清理逻辑已存在，但未处理 `ref_count` 递减
 - 未正确处理孤儿 r2Key
 
 **优化内容**：
+
 1. 递减被删除版本的 `ref_count`
 2. 当 `ref_count = 0` 时，从 R2 删除物理对象
 3. 添加 maxVersions 超量清理逻辑
@@ -91,6 +92,7 @@ export async function pruneExcessVersions(
 **修改文件**：`apps/api/src/lib/dedup.ts`
 
 **实现要点**：
+
 - 当版本删除时，正确处理 `ref_count`
 - `ref_count = 0` 时标记为待删除
 - 在 cleanup 中批量清理孤儿对象
@@ -104,6 +106,7 @@ export async function pruneExcessVersions(
 **文件**：`apps/api/migrations/0010_notes.sql`
 
 **表结构**：
+
 ```sql
 -- 文件笔记表
 CREATE TABLE IF NOT EXISTS file_notes (
@@ -145,6 +148,7 @@ ALTER TABLE files ADD COLUMN note_count INTEGER DEFAULT 0;
 ```
 
 **索引**：
+
 ```sql
 CREATE INDEX idx_file_notes_file ON file_notes(file_id, deleted_at, created_at DESC);
 CREATE INDEX idx_file_notes_user ON file_notes(user_id, created_at DESC);
@@ -157,11 +161,13 @@ CREATE INDEX idx_note_mentions_user ON note_mentions(user_id, is_read);
 **修改文件**：`apps/api/src/db/schema.ts`
 
 **新增表定义**：
+
 - `fileNotes` 表
 - `fileNoteHistory` 表
 - `noteMentions` 表
 
 **修改 files 表**：
+
 - 添加 `description` 字段
 - 添加 `noteCount` 字段
 
@@ -170,6 +176,7 @@ CREATE INDEX idx_note_mentions_user ON note_mentions(user_id, is_read);
 **文件**：`apps/api/src/routes/notes.ts`
 
 **路由设计**：
+
 ```
 GET    /api/notes/:fileId           -- 获取文件所有笔记（支持分页、排序）
 POST   /api/notes/:fileId           -- 新建笔记
@@ -182,6 +189,7 @@ PUT    /api/notes/mentions/:id/read -- 标为已读
 ```
 
 **关键实现**：
+
 1. **Markdown 安全渲染**：使用 `unified + remark-parse + rehype-sanitize` 预处理
 2. **@提及解析**：POST/PUT 时正则扫描 `@username`，查用户表，批量写 `note_mentions`
 3. **files.note_count 维护**：在 notes 路由中手动 `+1/-1`
@@ -191,6 +199,7 @@ PUT    /api/notes/mentions/:id/read -- 标为已读
 **目录**：`apps/web/src/components/notes/`
 
 **组件清单**：
+
 ```
 ├── NotePanel.tsx          -- 右侧抽屉/面板，与 FilePreview 并列
 ├── NoteEditor.tsx         -- Markdown 编辑器（推荐 @uiw/react-md-editor）
@@ -201,6 +210,7 @@ PUT    /api/notes/mentions/:id/read -- 标为已读
 ```
 
 **实现要点**：
+
 1. NotePanel 作为文件详情页的侧边栏
 2. NoteEditor 支持实时预览和 @用户 自动补全
 3. NoteCard 显示笔记摘要、作者、时间、操作按钮
@@ -210,6 +220,7 @@ PUT    /api/notes/mentions/:id/read -- 标为已读
 **修改文件**：`apps/web/src/components/share/ShareFilePreview.tsx` 或相关文件详情组件
 
 **实现**：
+
 - 添加笔记面板入口按钮
 - 集成 NotePanel 组件
 - 显示笔记数量角标
@@ -223,6 +234,7 @@ PUT    /api/notes/mentions/:id/read -- 标为已读
 **文件**：`apps/api/migrations/0011_api_keys.sql`
 
 **表结构**：
+
 ```sql
 -- API Keys 表
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -252,6 +264,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
 ```
 
 **Scope 设计**：
+
 ```
 files:read        -- 列出、下载、搜索文件
 files:write       -- 上传、修改、删除文件
@@ -266,6 +279,7 @@ admin:read        -- 管理员查询
 **修改文件**：`apps/api/src/db/schema.ts`
 
 **新增表定义**：
+
 - `apiKeys` 表
 - `webhooks` 表（预留）
 
@@ -274,6 +288,7 @@ admin:read        -- 管理员查询
 **修改文件**：`apps/api/src/middleware/auth.ts`
 
 **实现方案**：
+
 ```typescript
 // 认证优先级：
 // 1. Authorization: Bearer <jwt>
@@ -291,6 +306,7 @@ export const apiKeyMiddleware = async (c, next) => {
 ```
 
 **关键点**：
+
 - API Key 验证使用 SHA-256 哈希比对
 - 检查 `is_active` 和 `expires_at`
 - 验证 scope 权限
@@ -301,6 +317,7 @@ export const apiKeyMiddleware = async (c, next) => {
 **文件**：`apps/api/src/routes/apiKeys.ts`
 
 **路由设计**：
+
 ```
 GET    /api/keys              -- 列出用户所有 API Key
 POST   /api/keys              -- 创建新 API Key（返回明文 key，仅一次）
@@ -310,6 +327,7 @@ PATCH  /api/keys/:id          -- 更新 API Key（名称、scope）
 ```
 
 **安全要点**：
+
 - 创建时生成随机 key：`osk_live_${randomBytes(32).toString('base64url')}`
 - 仅在创建时返回明文 key，之后无法恢复
 - 存储时只保存 SHA-256 哈希
@@ -319,6 +337,7 @@ PATCH  /api/keys/:id          -- 更新 API Key（名称、scope）
 **目录**：`apps/web/src/components/settings/`
 
 **组件清单**：
+
 ```
 ├── ApiKeyList.tsx         -- API Key 列表
 ├── ApiKeyCreateDialog.tsx -- 创建 API Key 弹窗
@@ -327,6 +346,7 @@ PATCH  /api/keys/:id          -- 更新 API Key（名称、scope）
 ```
 
 **页面集成**：
+
 - 在用户设置页面添加 "API Keys" 标签页
 
 ---
@@ -338,19 +358,21 @@ PATCH  /api/keys/:id          -- 更新 API Key（名称、scope）
 **修改文件**：`apps/api/src/routes/files.ts`
 
 **新增路由**：
+
 ```
 PUT    /api/files/:id/content    -- 更新文件内容（触发版本快照）
 GET    /api/files/:id/raw        -- 获取文件原始内容（用于编辑器加载）
 ```
 
 **实现要点**：
+
 ```typescript
 // PUT /api/files/:id/content
 app.put('/:id/content', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
   const { content, changeSummary } = await c.req.json();
-  
+
   // 1. 权限检查（需要 write 权限）
   // 2. 获取原文件信息
   // 3. 创建版本快照（调用 versionManager.createVersionSnapshot）
@@ -363,7 +385,7 @@ app.put('/:id/content', async (c) => {
 app.get('/:id/raw', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
-  
+
   // 1. 权限检查
   // 2. 获取文件元数据
   // 3. 检查是否为可编辑文件（text/*, application/json 等）
@@ -373,6 +395,7 @@ app.get('/:id/raw', async (c) => {
 ```
 
 **支持的文件类型**：
+
 - `text/*`（text/plain, text/markdown, text/html, text/css, text/javascript 等）
 - `application/json`
 - `application/xml`
@@ -384,6 +407,7 @@ app.get('/:id/raw', async (c) => {
 **目录**：`apps/web/src/components/editor/`
 
 **组件清单**：
+
 ```
 ├── FileEditor.tsx           -- 文件编辑器主组件
 ├── FileEditorToolbar.tsx    -- 编辑器工具栏（保存、版本历史等）
@@ -396,11 +420,13 @@ app.get('/:id/raw', async (c) => {
 ```
 
 **编辑器选择**：
+
 - **代码文件**：Monaco Editor（VS Code 同款编辑器）
 - **Markdown 文件**：支持实时预览的 Markdown 编辑器
 - **纯文本文件**：简单的 textarea 或 CodeMirror
 
 **功能特性**：
+
 1. 语法高亮（根据文件类型自动识别）
 2. 行号显示
 3. 自动缩进
@@ -412,10 +438,12 @@ app.get('/:id/raw', async (c) => {
 ### 任务 3.8：集成文件编辑器到文件详情页（✅ 已完成）
 
 **修改文件**：
+
 - `apps/web/src/components/share/ShareFilePreview.tsx`
 - 或创建新的文件详情页组件
 
 **实现**：
+
 1. 对于可编辑文件，显示"编辑"按钮
 2. 点击后打开编辑器模态框或跳转到编辑页面
 3. 编辑器加载文件内容
@@ -428,6 +456,7 @@ app.get('/:id/raw', async (c) => {
 **修改文件**：`apps/web/src/components/files/FileCreateDialog.tsx`（或类似组件）
 
 **增强功能**：
+
 1. 支持选择文件类型模板：
    - 空白文本文件
    - Markdown 文档
@@ -480,12 +509,14 @@ Week 3: API Key 机制 + 文件编辑
 ## 验收标准
 
 ### 版本控制
+
 - [x] 文件内容更新时自动创建版本快照
 - [x] 版本数超过 maxVersions 时自动裁剪最老版本
 - [x] 版本清理 cron 正确处理 ref_count 和孤儿 r2Key
 - [x] 所有版本操作有完整的审计日志
 
 ### 备忘录
+
 - [x] 可为任意文件添加/编辑/删除笔记
 - [x] 支持 Markdown 格式和安全渲染
 - [x] 支持 @提及 用户并记录通知
@@ -493,12 +524,14 @@ Week 3: API Key 机制 + 文件编辑
 - [x] 前端笔记面板正常显示和交互
 
 ### API Key
+
 - [x] 可创建/列出/删除 API Key
 - [x] API Key 认证正常工作
 - [x] Scope 权限控制生效
 - [x] 前端管理界面完整可用
 
 ### 文件编辑
+
 - [x] 可编辑文本类型文件（txt, md, json, html, css, js 等）
 - [x] 编辑器支持语法高亮
 - [x] 保存时自动创建版本快照

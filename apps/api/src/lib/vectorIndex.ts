@@ -30,11 +30,7 @@ export interface IndexResult {
   error?: string;
 }
 
-export async function indexFileVector(
-  env: Env,
-  fileId: string,
-  text: string
-): Promise<void> {
+export async function indexFileVector(env: Env, fileId: string, text: string): Promise<void> {
   if (!env.AI || !env.VECTORIZE) {
     console.warn('AI or VECTORIZE not configured, skipping vector indexing');
     return;
@@ -77,10 +73,7 @@ export async function indexFileVector(
       },
     ]);
 
-    await db
-      .update(files)
-      .set({ vectorIndexedAt: new Date().toISOString() })
-      .where(eq(files.id, fileId));
+    await db.update(files).set({ vectorIndexedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   } catch (error) {
     console.error(`Failed to index file ${fileId}:`, error);
     throw error;
@@ -146,10 +139,7 @@ export async function searchSimilarFiles(
   }
 }
 
-export async function buildFileTextForVector(
-  env: Env,
-  fileId: string
-): Promise<string> {
+export async function buildFileTextForVector(env: Env, fileId: string): Promise<string> {
   const db = getDb(env.DB);
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
@@ -162,20 +152,14 @@ export async function buildFileTextForVector(
     .limit(5)
     .all();
 
-  const parts = [
-    file.name,
-    file.description || '',
-    file.aiSummary || '',
-    ...notes.map((n) => n.content),
-  ].filter(Boolean);
+  const parts = [file.name, file.description || '', file.aiSummary || '', ...notes.map((n) => n.content)].filter(
+    Boolean
+  );
 
   return parts.join('\n');
 }
 
-export async function batchIndexFiles(
-  env: Env,
-  fileIds: string[]
-): Promise<IndexResult[]> {
+export async function batchIndexFiles(env: Env, fileIds: string[]): Promise<IndexResult[]> {
   const results: IndexResult[] = [];
 
   for (const fileId of fileIds) {
@@ -213,13 +197,7 @@ export async function searchAndFetchFiles(
   const fileRecords = await db
     .select()
     .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        isNull(files.deletedAt),
-        inArray(files.id, fileIds)
-      )
-    )
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt), inArray(files.id, fileIds)))
     .all();
 
   const fileMap = new Map(fileRecords.map((f) => [f.id, f]));

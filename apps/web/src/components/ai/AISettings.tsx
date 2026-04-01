@@ -63,11 +63,7 @@ export function AISettings() {
 
   const renderTaskStatus = () => {
     if (!task || task.status === 'idle') {
-      return (
-        <p className="text-sm text-muted-foreground">
-          当前没有正在运行的索引任务
-        </p>
-      );
+      return <p className="text-sm text-muted-foreground">当前没有正在运行的索引任务</p>;
     }
 
     const progress = task.total > 0 ? (task.processed / task.total) * 100 : 0;
@@ -96,30 +92,19 @@ export function AISettings() {
         </div>
 
         <div className="w-full bg-secondary rounded-full h-2">
-          <div
-            className="bg-primary h-2 rounded-full transition-all"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
         </div>
 
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>已处理: {task.processed} / {task.total}</span>
+          <span>
+            已处理: {task.processed} / {task.total}
+          </span>
           {task.failed > 0 && <span className="text-red-500">失败: {task.failed}</span>}
         </div>
 
-        {task.startedAt && (
-          <p className="text-xs text-muted-foreground">
-            开始时间: {formatDate(task.startedAt)}
-          </p>
-        )}
-        {task.completedAt && (
-          <p className="text-xs text-muted-foreground">
-            完成时间: {formatDate(task.completedAt)}
-          </p>
-        )}
-        {task.error && (
-          <p className="text-xs text-red-500">{task.error}</p>
-        )}
+        {task.startedAt && <p className="text-xs text-muted-foreground">开始时间: {formatDate(task.startedAt)}</p>}
+        {task.completedAt && <p className="text-xs text-muted-foreground">完成时间: {formatDate(task.completedAt)}</p>}
+        {task.error && <p className="text-xs text-red-500">{task.error}</p>}
       </div>
     );
   };
@@ -133,16 +118,12 @@ export function AISettings() {
           <Sparkles className="h-5 w-5" />
           AI 功能
         </h3>
-        <p className="text-sm text-muted-foreground">
-          配置 Cloudflare Workers AI 功能
-        </p>
+        <p className="text-sm text-muted-foreground">配置 Cloudflare Workers AI 功能</p>
       </div>
 
       {!isAIAvailable && (
         <div className="border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 rounded-lg p-4">
-          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-            AI 功能未配置
-          </p>
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">AI 功能未配置</p>
           <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
             请在 Cloudflare Dashboard 中配置 AI 和 Vectorize 绑定
           </p>
@@ -154,15 +135,9 @@ export function AISettings() {
           <div className="flex items-center justify-between p-4 border rounded-lg">
             <div>
               <p className="font-medium">语义搜索索引</p>
-              <p className="text-sm text-muted-foreground">
-                为文件建立向量索引以支持语义搜索
-              </p>
+              <p className="text-sm text-muted-foreground">为文件建立向量索引以支持语义搜索</p>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => setShowConfirmDialog(true)}
-              disabled={task?.status === 'running'}
-            >
+            <Button variant="outline" onClick={() => setShowConfirmDialog(true)} disabled={task?.status === 'running'}>
               <Database className="h-4 w-4 mr-2" />
               一键生成索引
             </Button>
@@ -182,13 +157,9 @@ export function AISettings() {
             </div>
 
             <div className="space-y-3 text-sm">
-              <p>
-                此操作将为所有未建立索引的文件生成向量索引，用于语义搜索功能。
-              </p>
+              <p>此操作将为所有未建立索引的文件生成向量索引，用于语义搜索功能。</p>
               <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 space-y-2">
-                <p className="font-medium text-amber-800 dark:text-amber-200">
-                  ⚠️ 重要提示：
-                </p>
+                <p className="font-medium text-amber-800 dark:text-amber-200">⚠️ 重要提示：</p>
                 <ul className="text-amber-700 dark:text-amber-300 space-y-1 list-disc list-inside">
                   <li>此操作将处理您的所有文件数据</li>
                   <li>任务将在后台异步执行，可能需要较长时间</li>
@@ -196,9 +167,7 @@ export function AISettings() {
                   <li>索引期间可随时查看进度</li>
                 </ul>
               </div>
-              <p className="text-muted-foreground">
-                确认后，系统将在后台自动处理所有文件，您可以继续使用其他功能。
-              </p>
+              <p className="text-muted-foreground">确认后，系统将在后台自动处理所有文件，您可以继续使用其他功能。</p>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

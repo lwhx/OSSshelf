@@ -44,11 +44,7 @@ export function isAIConfigured(env: Env): boolean {
   return !!(env.AI && env.VECTORIZE);
 }
 
-export async function generateFileSummary(
-  env: Env,
-  fileId: string,
-  content?: string
-): Promise<SummaryResult> {
+export async function generateFileSummary(env: Env, fileId: string, content?: string): Promise<SummaryResult> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
@@ -83,8 +79,7 @@ export async function generateFileSummary(
       messages: [
         {
           role: 'system',
-          content:
-            '你是文件助手。请用简洁的中文（不超过3句话）概括文件内容。如果内容是代码，请说明代码的主要功能。',
+          content: '你是文件助手。请用简洁的中文（不超过3句话）概括文件内容。如果内容是代码，请说明代码的主要功能。',
         },
         {
           role: 'user',
@@ -98,10 +93,7 @@ export async function generateFileSummary(
 
     await Promise.all([
       env.KV.put(cacheKey, summary, { expirationTtl: 86400 }),
-      db
-        .update(files)
-        .set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() })
-        .where(eq(files.id, fileId)),
+      db.update(files).set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() }).where(eq(files.id, fileId)),
     ]);
 
     return { summary, cached: false };
@@ -111,11 +103,7 @@ export async function generateFileSummary(
   }
 }
 
-export async function generateImageTags(
-  env: Env,
-  fileId: string,
-  imageBuffer?: ArrayBuffer
-): Promise<ImageTagResult> {
+export async function generateImageTags(env: Env, fileId: string, imageBuffer?: ArrayBuffer): Promise<ImageTagResult> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
@@ -185,11 +173,7 @@ export async function generateImageTags(
   }
 }
 
-export async function suggestFileName(
-  env: Env,
-  fileId: string,
-  content?: string
-): Promise<RenameSuggestion> {
+export async function suggestFileName(env: Env, fileId: string, content?: string): Promise<RenameSuggestion> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
@@ -270,10 +254,7 @@ export async function suggestFileName(
   }
 }
 
-async function extractTextFromFile(
-  env: Env,
-  file: typeof files.$inferSelect
-): Promise<string> {
+async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): Promise<string> {
   if (!canGenerateSummary(file.mimeType, file.name)) {
     return '';
   }
@@ -289,10 +270,7 @@ async function extractTextFromFile(
   }
 }
 
-async function fetchFileContentAsBuffer(
-  env: Env,
-  file: typeof files.$inferSelect
-): Promise<ArrayBuffer | null> {
+async function fetchFileContentAsBuffer(env: Env, file: typeof files.$inferSelect): Promise<ArrayBuffer | null> {
   if (!file.bucketId || !file.r2Key) {
     return null;
   }
@@ -312,12 +290,7 @@ function parseImageTags(result: unknown): string[] {
 
   if (Array.isArray(result)) {
     for (const item of result) {
-      if (
-        item &&
-        typeof item === 'object' &&
-        'label' in item &&
-        typeof item.label === 'string'
-      ) {
+      if (item && typeof item === 'object' && 'label' in item && typeof item.label === 'string') {
         tags.push(item.label.trim());
       }
     }
@@ -331,10 +304,7 @@ function parseImageTags(result: unknown): string[] {
   return [...new Set(tags)].slice(0, 5);
 }
 
-export async function autoProcessFile(
-  env: Env,
-  fileId: string
-): Promise<void> {
+export async function autoProcessFile(env: Env, fileId: string): Promise<void> {
   if (!env.AI) {
     return;
   }

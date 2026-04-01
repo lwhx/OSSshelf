@@ -75,6 +75,7 @@ Authorization: ApiKey osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 **API Key 格式**：`osk_live_` 前缀 + 64 位十六进制字符
 
 **API Key 特点**：
+
 - 仅在创建时显示一次，请妥善保存
 - 支持 Scope 权限控制
 - 支持过期时间设置
@@ -1607,21 +1608,21 @@ Authorization: Bearer <token>
 
 ### 支持的预览类型
 
-| 类型 | MIME 类型 / 扩展名 | 预览方式 |
-|------|-------------------|----------|
-| 图片 | image/* | 浏览器原生 `<img>` |
-| 视频 | video/* | 浏览器原生 `<video>` |
-| 音频 | audio/* | 浏览器原生 `<audio>` |
-| PDF | application/pdf | pdf.js 分页渲染 |
-| Markdown | text/markdown, .md | react-markdown + GFM + 数学公式 |
-| 代码 | text/*, .js/.ts/.py 等 | highlight.js 语法高亮 |
-| Word | application/msword, .docx | docx-preview 本地渲染 |
-| Excel | application/vnd.ms-excel, .xlsx | xlsx 库 + 样式保留 |
-| PowerPoint | application/vnd.ms-powerpoint, .pptx | pptx-preview 本地渲染 |
-| EPUB | application/epub+zip, .epub | epub.js 电子书阅读器 |
-| 字体 | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览 |
-| ZIP | application/zip | JSZip 文件列表预览 |
-| CSV | text/csv, .csv | PapaParse 表格视图 |
+| 类型       | MIME 类型 / 扩展名                        | 预览方式                        |
+| ---------- | ----------------------------------------- | ------------------------------- |
+| 图片       | image/\*                                  | 浏览器原生 `<img>`              |
+| 视频       | video/\*                                  | 浏览器原生 `<video>`            |
+| 音频       | audio/\*                                  | 浏览器原生 `<audio>`            |
+| PDF        | application/pdf                           | pdf.js 分页渲染                 |
+| Markdown   | text/markdown, .md                        | react-markdown + GFM + 数学公式 |
+| 代码       | text/\*, .js/.ts/.py 等                   | highlight.js 语法高亮           |
+| Word       | application/msword, .docx                 | docx-preview 本地渲染           |
+| Excel      | application/vnd.ms-excel, .xlsx           | xlsx 库 + 样式保留              |
+| PowerPoint | application/vnd.ms-powerpoint, .pptx      | pptx-preview 本地渲染           |
+| EPUB       | application/epub+zip, .epub               | epub.js 电子书阅读器            |
+| 字体       | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览           |
+| ZIP        | application/zip                           | JSZip 文件列表预览              |
+| CSV        | text/csv, .csv                            | PapaParse 表格视图              |
 
 ### 预览大小限制
 
@@ -1905,10 +1906,10 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数     | 说明                     |
-| -------- | ------------------------ |
-| `page`   | 页码，默认 1             |
-| `limit`  | 每页数量，默认 20        |
+| 参数    | 说明              |
+| ------- | ----------------- |
+| `page`  | 页码，默认 1      |
+| `limit` | 每页数量，默认 20 |
 
 **响应**:
 
@@ -1967,6 +1968,7 @@ Content-Type: application/json
 ```
 
 **说明**:
+
 - `content` 中使用 `@邮箱` 格式可以提及其他用户
 - `parentId` 为 null 时是顶级笔记，否则是回复
 
@@ -2055,14 +2057,14 @@ Content-Type: application/json
 
 **可用 Scopes**:
 
-| Scope           | 说明               |
-| --------------- | ------------------ |
-| `files:read`    | 读取文件列表和内容 |
+| Scope           | 说明                 |
+| --------------- | -------------------- |
+| `files:read`    | 读取文件列表和内容   |
 | `files:write`   | 上传、修改、删除文件 |
-| `shares:read`   | 查看分享信息       |
-| `shares:write`  | 创建和管理分享     |
-| `buckets:read`  | 查看存储桶配置     |
-| `api_keys:read` | 查看 API Keys 列表 |
+| `shares:read`   | 查看分享信息         |
+| `shares:write`  | 创建和管理分享       |
+| `buckets:read`  | 查看存储桶配置       |
+| `api_keys:read` | 查看 API Keys 列表   |
 
 **响应**:
 
@@ -2482,15 +2484,15 @@ Content-Type: application/json
 
 **支持的事件**:
 
-| 事件 | 说明 |
-|------|------|
-| `file.uploaded` | 文件上传完成 |
-| `file.deleted` | 文件删除 |
-| `file.updated` | 文件更新 |
-| `share.created` | 分享创建 |
-| `share.deleted` | 分享删除 |
-| `permission.granted` | 权限授予 |
-| `permission.revoked` | 权限撤销 |
+| 事件                 | 说明         |
+| -------------------- | ------------ |
+| `file.uploaded`      | 文件上传完成 |
+| `file.deleted`       | 文件删除     |
+| `file.updated`       | 文件更新     |
+| `share.created`      | 分享创建     |
+| `share.deleted`      | 分享删除     |
+| `permission.granted` | 权限授予     |
+| `permission.revoked` | 权限撤销     |
 
 **响应**:
 
