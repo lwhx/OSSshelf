@@ -276,23 +276,13 @@ async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): P
 }
 
 async function fetchFileContentAsBuffer(env: Env, file: typeof files.$inferSelect): Promise<ArrayBuffer | null> {
-  if (!file.bucketId) {
-    console.error(`File ${file.id} has no bucketId`);
-    return null;
-  }
-  if (!file.r2Key) {
-    console.error(`File ${file.id} has no r2Key`);
+  if (!file.bucketId || !file.r2Key) {
     return null;
   }
 
   try {
-    const content = await getFileContent(env, file.bucketId, file.r2Key);
-    if (!content) {
-      console.error(`Failed to get content for file ${file.id} from bucket ${file.bucketId}, r2Key: ${file.r2Key}`);
-    }
-    return content;
-  } catch (error) {
-    console.error('Failed to fetch file content:', error);
+    return await getFileContent(env, file.bucketId, file.r2Key);
+  } catch {
     return null;
   }
 }

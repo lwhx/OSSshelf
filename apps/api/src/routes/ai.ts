@@ -266,9 +266,13 @@ app.post('/summarize/:fileId', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
-  const result = await generateFileSummary(c.env, fileId);
-
-  return c.json({ success: true, data: result });
+  try {
+    const result = await generateFileSummary(c.env, fileId);
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成摘要失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 });
 
 app.post('/tags/:fileId', async (c) => {
@@ -290,9 +294,13 @@ app.post('/tags/:fileId', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } }, 400);
   }
 
-  const result = await generateImageTags(c.env, fileId);
-
-  return c.json({ success: true, data: result });
+  try {
+    const result = await generateImageTags(c.env, fileId);
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成标签失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 });
 
 app.post('/rename-suggest/:fileId', async (c) => {
@@ -310,9 +318,13 @@ app.post('/rename-suggest/:fileId', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
-  const result = await suggestFileName(c.env, fileId);
-
-  return c.json({ success: true, data: result });
+  try {
+    const result = await suggestFileName(c.env, fileId);
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成重命名建议失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 });
 
 app.get('/file/:fileId', async (c) => {
