@@ -352,7 +352,7 @@ export default function Tasks() {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">上传任务</h1>
+          <h1 className="text-xl lg:text-2xl font-bold">上传任务</h1>
           <p className="text-muted-foreground text-sm mt-0.5">管理文件上传任务</p>
         </div>
         <div className={cn('flex items-center gap-2', isMobile ? 'flex-col w-full' : 'flex-row')}>

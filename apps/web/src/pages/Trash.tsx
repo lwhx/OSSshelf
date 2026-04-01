@@ -62,11 +62,11 @@ export default function Trash() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">回收站</h1>
+          <h1 className="text-xl lg:text-2xl font-bold">回收站</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {items.length > 0 ? `${items.length} 个文件等待清理` : '回收站是空的'}
           </p>

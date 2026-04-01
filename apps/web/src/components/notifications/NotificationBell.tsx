@@ -8,8 +8,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Bell, BellOff, Check, CheckCheck, Loader2 } from 'lucide-react';
-import { analyticsApi } from '../../services/api';
+import { Bell, BellOff } from 'lucide-react';
+import { notificationsApi } from '../../services/api';
 import { cn } from '../../utils';
 
 interface NotificationBellProps {
@@ -19,21 +19,15 @@ interface NotificationBellProps {
 
 export function NotificationBell({ onClick, className }: NotificationBellProps) {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
 
   const fetchUnreadCount = async () => {
-    setLoading(true);
     try {
-      const res = await analyticsApi.getStorageBreakdown();
+      const res = await notificationsApi.getUnreadCount();
       if (res.data.success) {
-        // TODO: 实际调用通知 API
-        // const notifRes = await notificationsApi.getUnreadCount();
-        // setUnreadCount(notifRes.data.data.count);
+        setUnreadCount(res.data.data.count);
       }
-    } catch (error) {
-      console.error('Failed to fetch unread count:', error);
-    } finally {
-      setLoading(false);
+    } catch {
+      // silent fail — 通知不影响主功能
     }
   };
 
@@ -52,9 +46,7 @@ export function NotificationBell({ onClick, className }: NotificationBellProps) 
       )}
       title="通知"
     >
-      {loading ? (
-        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-      ) : unreadCount > 0 ? (
+      {unreadCount > 0 ? (
         <>
           <Bell className="h-5 w-5 text-gray-600 dark:text-gray-300" />
           <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-xs font-bold text-white bg-red-500 rounded-full">

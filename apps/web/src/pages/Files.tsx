@@ -582,7 +582,7 @@ export default function Files() {
   );
 
   return (
-    <div className="space-y-5" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div className="space-y-6" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       <ContextMenuComponent />
 
       {isDragActive && (

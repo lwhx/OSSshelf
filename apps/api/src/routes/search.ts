@@ -152,15 +152,21 @@ app.get('/', async (c) => {
   if (searchParams.query && !searchParams.semantic && !searchParams.fts) {
     conditions.push(like(files.name, `%${searchParams.query}%`));
   } else if (searchParams.fts && searchParams.query) {
-    const ftsResults = await db
-      .select({ id: sql<string>`files_fts.id` })
-      .from(sql`files_fts`)
-      .where(sql`files_fts MATCH ${searchParams.query}`)
-      .all();
-    const ftsIds = ftsResults.map((r) => r.id);
+    let ftsIds: string[] = [];
+    try {
+      const ftsResults = await db
+        .select({ id: sql<string>`files_fts.id` })
+        .from(sql`files_fts`)
+        .where(sql`files_fts MATCH ${searchParams.query}`)
+        .all();
+      ftsIds = ftsResults.map((r) => r.id);
+    } catch {
+      // FTS5 虚拟表不可用时降级为 LIKE 搜索
+      conditions.push(like(files.name, `%${searchParams.query}%`));
+    }
     if (ftsIds.length > 0) {
       conditions.push(inArray(files.id, ftsIds));
-    } else {
+    } else if (!searchParams.query) {
       return c.json({
         success: true,
         data: {

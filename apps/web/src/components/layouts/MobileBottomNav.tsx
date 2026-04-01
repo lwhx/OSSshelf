@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   ChevronRight,
   HardDrive,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
 ];
 
 const QUICK_ACTIONS = [
+  { path: '/starred', label: '收藏', icon: Star },
   { path: '/tasks', label: '上传任务', icon: Upload },
   { path: '/trash', label: '回收站', icon: Trash2, showBadge: true },
   { path: '/buckets', label: '存储桶', icon: Database },

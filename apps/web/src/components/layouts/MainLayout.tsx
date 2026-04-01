@@ -50,7 +50,7 @@ import { KeyboardShortcutsDialog } from '@/components/ui/KeyboardShortcutsDialog
 const baseNavItems = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
-  { path: '/files?starred=true', label: '收藏', icon: Star, exact: false },
+  { path: '/starred', label: '收藏', icon: Star, exact: false },
   { path: '/shares', label: '分享', icon: Share2, exact: false },
   { path: '/tasks', label: '上传任务', icon: Upload, exact: false },
   { path: '/downloads', label: '离线下载', icon: Download, exact: false },
