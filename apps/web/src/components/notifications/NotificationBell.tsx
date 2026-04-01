@@ -24,7 +24,7 @@ export function NotificationBell({ onClick, className }: NotificationBellProps) 
     try {
       const res = await notificationsApi.getUnreadCount();
       if (res.data.success) {
-        setUnreadCount(res.data.data.count);
+        setUnreadCount(res.data.data?.count ?? 0);
       }
     } catch {
       // silent fail — 通知不影响主功能
