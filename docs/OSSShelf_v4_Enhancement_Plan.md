@@ -107,50 +107,50 @@ export const emailTemplates = {
 
 ### 1.4 后端路由结构
 
-**注册验证**
+**注册验证（6位验证码）**
 
 ```
 POST /api/auth/register
   → 创建用户（email_verified=0）
-  → 生成 verify token（TTL 24h）
-  → 发送验证邮件
+  → 生成 6位验证码（TTL 10分钟）
+  → 发送验证码邮件
   → 返回 { requireEmailVerification: true }
 
-GET  /api/auth/verify-email?token=xxx
-  → 验证 token → 设置 email_verified=1 → 返回成功
+POST /api/auth/verify-code { email, code, type: 'verify_email' }
+  → 验证验证码 → 设置 email_verified=1 → 返回成功
 
 POST /api/auth/resend-verification
   → 限流：同邮箱 1 分钟内只能发 1 次（KV 控制）
-  → 重新发送验证邮件
+  → 重新发送验证码邮件
 ```
 
 **未验证用户限制**：登录后若 `email_verified=0`，前端展示验证提示横幅，核心功能（上传、分享）受限，但可以浏览文件。
 
-**忘记密码**
+**忘记密码（6位验证码）**
 
 ```
 POST /api/auth/forgot-password { email }
-  → 查用户 → 生成 reset token（TTL 1h）
-  → 发送重置邮件（含链接 /reset-password?token=xxx）
+  → 查用户 → 生成 6位验证码（TTL 10分钟）
+  → 发送验证码邮件
   → 无论邮箱是否存在，始终返回 200（防止邮箱枚举）
 
-POST /api/auth/reset-password { token, newPassword }
-  → 验证 token → 更新密码 → 标记 token 已使用
+POST /api/auth/reset-password { email, code, newPassword }
+  → 验证验证码 → 更新密码 → 标记验证码已使用
   → 发送「密码已更改」安全通知邮件
   → 使该用户所有现有 JWT 失效（users 表加 password_changed_at，JWT 验证时比对）
 ```
 
-**更换邮箱**
+**更换邮箱（6位验证码）**
 
 ```
 POST /api/auth/change-email { newEmail, password }
   → 验证当前密码
   → 检查 newEmail 未被其他账号占用
-  → 生成 change_email token（TTL 1h），绑定 newEmail
-  → 向 newEmail 发送确认邮件
+  → 生成 6位验证码（TTL 10分钟），绑定 newEmail
+  → 向 newEmail 发送验证码邮件
 
-GET  /api/auth/confirm-change-email?token=xxx
-  → 验证 token → 更新 users.email → 发送「邮箱已更改」通知到旧邮箱
+POST /api/auth/verify-code { email, code, type: 'change_email' }
+  → 验证验证码 → 更新 users.email → 发送「邮箱已更改」通知到旧邮箱
 ```
 
 **更换密码**
@@ -594,9 +594,9 @@ Week 2:
 
 Week 3:
   ✅ 忘记密码 + 更换密码/邮箱：
-     - POST /api/auth/forgot-password
-     - POST /api/auth/reset-password
-     - POST /api/auth/change-email + GET /api/auth/confirm-change-email
+     - POST /api/auth/forgot-password（发送6位验证码）
+     - POST /api/auth/reset-password（验证码+新密码）
+     - POST /api/auth/change-email + POST /api/auth/verify-code
      - POST /api/auth/change-password（含安全通知邮件）
      - users.password_changed_at → JWT 失效机制
      - 前端：ForgotPassword.tsx + ResetPassword.tsx + EmailPreferences.tsx

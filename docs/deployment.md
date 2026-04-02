@@ -124,17 +124,13 @@
 
 **环境变量**
 
-- 新增必需环境变量 `PUBLIC_URL`（用于生成邮件链接）
+- 新增可选环境变量 `PUBLIC_URL`（用于生成文件直接访问链接）
 
 **部署注意事项**
 
-1. **必须配置 PUBLIC_URL**
+1. **配置邮件服务（可选）**
 
-   ```toml
-   # wrangler.toml
-   [vars]
-   PUBLIC_URL = "https://your-domain.com"
-   ```
+   如需使用邮件通知功能，在管理面板配置Resend即可，无需配置PUBLIC_URL
 
 2. **执行数据库迁移**
 
@@ -421,12 +417,12 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | Secret 名称                  | 必需 | 说明                                     |
 | ---------------------------- | ---- | ---------------------------------------- |
 | `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限                         |
-| `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识                      |
-| `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定                            |
-| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定                          |
-| `JWT_SECRET`                 | ✅   | JWT 签名密钥                             |
-| `CORS_ORIGINS`               | ✅   | CORS 允许域名                            |
-| `PUBLIC_URL`                 | ✅   | 应用公网地址，用于生成邮件链接 (v4.0.0+) |
+| `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识                            |
+| `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定                                  |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定                                |
+| `JWT_SECRET`                 | ✅   | JWT 签名密钥                                   |
+| `CORS_ORIGINS`               | ✅   | CORS 允许域名                                  |
+| `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选）  |
 
 ### 可选 Secrets
 
@@ -641,22 +637,15 @@ RESEND_FROM_ADDRESS=noreply@yourdomain.com
 RESEND_FROM_NAME=OSSShelf
 ```
 
-### 5. 必需的环境变量
+### 5. 邮件功能说明
 
-**重要**: 必须配置 `PUBLIC_URL` 环境变量，否则邮件功能无法使用。
+**注意**: 邮件验证已升级为6位验证码方式，无需配置 `PUBLIC_URL` 环境变量。
 
-```toml
-# wrangler.toml 或 GitHub Secrets
-[vars]
-PUBLIC_URL = "https://your-domain.com"
-```
-
-**要求**:
-
-- ✅ 必须是完整的URL（包含协议）
-- ✅ 不应包含尾部斜杠
-- ✅ 示例：`https://ossshelf.com` 或 `https://app.example.com`
-- ❌ 不要使用 `http://localhost:8787`（生产环境）
+邮件功能只需在管理面板配置 Resend API Key 即可使用：
+- 注册邮箱验证（6位验证码）
+- 忘记密码重置（6位验证码）
+- 更换邮箱确认（6位验证码）
+- 系统通知邮件
 
 ### 6. 测试邮件功能
 
@@ -664,13 +653,13 @@ PUBLIC_URL = "https://your-domain.com"
 
 1. **注册验证邮件**
    - 注册新用户
-   - 检查是否收到验证邮件
-   - 点击验证链接确认功能
+   - 检查是否收到6位验证码邮件
+   - 输入验证码完成验证
 
 2. **忘记密码邮件**
    - 在登录页点击"忘记密码"
    - 输入邮箱地址
-   - 检查是否收到重置邮件
+   - 检查是否收到6位验证码邮件
 
 3. **测试邮件**
    - 在管理面板 → 邮件配置
@@ -716,19 +705,31 @@ PUBLIC_URL = "https://your-domain.com"
 wrangler tail
 
 # 搜索错误信息
-# "PUBLIC_URL not configured"
 # "Email send failed"
+# "Email service not configured"
 ```
 
-#### 问题：邮件链接无法打开
+#### 问题：验证码未收到
 
-**原因**: `PUBLIC_URL` 配置错误或未配置
+**原因**: Resend配置问题或邮件被拦截
 
 **解决方案**:
 
-1. 检查 GitHub Secrets 中的 `PUBLIC_URL`
-2. 确保使用正确的生产环境域名
-3. 重新部署后端
+1. 检查管理面板中的Resend API Key配置
+2. 确认发件人域名已在Resend中验证
+3. 检查邮箱垃圾邮件文件夹
+4. 查看Resend控制台的发送日志
+
+#### 问题：验证码验证失败
+
+**原因**: 验证码过期或输入错误
+
+**解决方案**:
+
+1. 验证码有效期为10分钟，请及时使用
+2. 确认输入的6位验证码正确无误
+3. 点击"重新发送"获取新的验证码
+4. 检查邮箱地址是否正确
 
 #### 问题：验证邮件进入垃圾箱
 

@@ -562,7 +562,7 @@ export const emailTokens = sqliteTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     email: text('email').notNull(),
     type: text('type').notNull(),
-    tokenHash: text('token_hash').notNull().unique(),
+    code: text('code').notNull(),
     expiresAt: text('expires_at').notNull(),
     usedAt: text('used_at'),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
@@ -570,6 +570,7 @@ export const emailTokens = sqliteTable(
   (table) => ({
     userIdx: index('idx_email_tokens_user').on(table.userId, table.type),
     expiresIdx: index('idx_email_tokens_expires').on(table.expiresAt),
+    codeIdx: index('idx_email_tokens_code').on(table.email, table.code, table.type),
   })
 );
 
