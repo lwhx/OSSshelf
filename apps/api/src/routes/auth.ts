@@ -250,6 +250,11 @@ app.post('/register', async (c) => {
 
   // 非首个用户需要邮箱验证
   if (!isFirstUser) {
+    if (!c.env.PUBLIC_URL) {
+      console.error('PUBLIC_URL not configured, cannot send verification email');
+      throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
+    }
+
     const verifyToken = crypto.randomUUID();
     const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifyToken));
     const tokenHashHex = Array.from(new Uint8Array(tokenHash))
@@ -267,7 +272,7 @@ app.post('/register', async (c) => {
       createdAt: now,
     });
 
-    const verifyLink = `${c.env.PUBLIC_URL || 'http://localhost:8787'}/verify-email?token=${verifyToken}`;
+    const verifyLink = `${c.env.PUBLIC_URL}/verify-email?token=${verifyToken}`;
     const html = emailTemplates.verifyEmail(name || email, verifyLink);
     await sendEmail(c.env, email, '验证您的邮箱', html);
   }
@@ -488,6 +493,7 @@ app.patch('/me', authMiddleware, async (c) => {
       throwAppError('WRONG_PASSWORD', '当前密码错误');
     }
     updateData.passwordHash = await hashPassword(newPassword);
+    updateData.passwordChangedAt = now;
   }
 
   await db.update(users).set(updateData).where(eq(users.id, userId));
@@ -896,7 +902,12 @@ app.post('/resend-verification', async (c) => {
     createdAt: now,
   });
 
-  const verifyLink = `${c.env.PUBLIC_URL || 'http://localhost:8787'}/verify-email?token=${verifyToken}`;
+  if (!c.env.PUBLIC_URL) {
+    console.error('PUBLIC_URL not configured, cannot send verification email');
+    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
+  }
+
+  const verifyLink = `${c.env.PUBLIC_URL}/verify-email?token=${verifyToken}`;
   const html = emailTemplates.verifyEmail(user.name || user.email, verifyLink);
   await sendEmail(c.env, user.email, '验证您的邮箱', html);
 
@@ -940,7 +951,12 @@ app.post('/forgot-password', async (c) => {
     createdAt: now,
   });
 
-  const resetLink = `${c.env.PUBLIC_URL || 'http://localhost:8787'}/reset-password?token=${resetToken}`;
+  if (!c.env.PUBLIC_URL) {
+    console.error('PUBLIC_URL not configured, cannot send reset password email');
+    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
+  }
+
+  const resetLink = `${c.env.PUBLIC_URL}/reset-password?token=${resetToken}`;
   const html = emailTemplates.resetPassword(user.name || user.email, resetLink);
   await sendEmail(c.env, user.email, '重置您的密码', html);
 
@@ -1064,7 +1080,12 @@ app.post('/change-email', authMiddleware, async (c) => {
     createdAt: now,
   });
 
-  const changeLink = `${c.env.PUBLIC_URL || 'http://localhost:8787'}/confirm-change-email?token=${changeToken}`;
+  if (!c.env.PUBLIC_URL) {
+    console.error('PUBLIC_URL not configured, cannot send change email confirmation');
+    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
+  }
+
+  const changeLink = `${c.env.PUBLIC_URL}/confirm-change-email?token=${changeToken}`;
   const html = emailTemplates.changeEmail(user.name || user.email, newEmail, changeLink);
   await sendEmail(c.env, newEmail, '确认更换邮箱', html);
 
@@ -1135,6 +1156,81 @@ app.get('/confirm-change-email', async (c) => {
   });
 
   return c.json({ success: true, data: { message: '邮箱更换成功' } });
+});
+
+// ── Email Preferences ─────────────────────────────────────────────────────
+
+app.get('/email-preferences', authMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) {
+    throwAppError('USER_NOT_FOUND');
+  }
+
+  const defaultPreferences = {
+    mention: true,
+    share_received: true,
+    quota_warning: true,
+    ai_complete: false,
+    system: true,
+  };
+
+  let preferences = defaultPreferences;
+  if (user.emailPreferences) {
+    try {
+      preferences = { ...defaultPreferences, ...JSON.parse(user.emailPreferences) };
+    } catch (e) {
+      // 使用默认值
+    }
+  }
+
+  return c.json({ success: true, data: preferences });
+});
+
+app.put('/email-preferences', authMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const db = getDb(c.env.DB);
+  const now = new Date().toISOString();
+
+  const schema = z.object({
+    mention: z.boolean().optional(),
+    share_received: z.boolean().optional(),
+    quota_warning: z.boolean().optional(),
+    ai_complete: z.boolean().optional(),
+    system: z.boolean().optional(),
+  });
+
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    throwAppError('VALIDATION_ERROR', '无效的偏好设置');
+  }
+
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) {
+    throwAppError('USER_NOT_FOUND');
+  }
+
+  let currentPrefs = {};
+  if (user.emailPreferences) {
+    try {
+      currentPrefs = JSON.parse(user.emailPreferences);
+    } catch (e) {
+      // 使用空对象
+    }
+  }
+
+  const updatedPrefs = { ...currentPrefs, ...result.data };
+  const prefsJson = JSON.stringify(updatedPrefs);
+
+  await db
+    .update(users)
+    .set({ emailPreferences: prefsJson, updatedAt: now })
+    .where(eq(users.id, userId));
+
+  return c.json({ success: true, data: updatedPrefs });
 });
 
 export default app;

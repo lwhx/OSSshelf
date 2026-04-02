@@ -88,7 +88,19 @@ export const authApi = {
     api.post<ApiResponse<{ message: string }>>('/api/auth/reset-password', params),
   changeEmail: (params: { newEmail: string; password: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/change-email', params),
+  getEmailPreferences: () =>
+    api.get<ApiResponse<EmailPreferences>>('/api/auth/email-preferences'),
+  setEmailPreferences: (data: Partial<EmailPreferences>) =>
+    api.put<ApiResponse<EmailPreferences>>('/api/auth/email-preferences', data),
 };
+
+export interface EmailPreferences {
+  mention: boolean;
+  share_received: boolean;
+  quota_warning: boolean;
+  ai_complete: boolean;
+  system: boolean;
+}
 
 export interface BucketStats {
   id: string;

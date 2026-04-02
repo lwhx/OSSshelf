@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { authApi } from '@/services/api';
+import { authApi, type EmailPreferences } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
@@ -128,6 +128,76 @@ function EmailChangeForm() {
         {changeEmailMutation.isPending ? '发送中...' : '发送确认邮件'}
       </Button>
     </form>
+  );
+}
+
+function EmailPreferencesForm() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: preferences, isLoading } = useQuery({
+    queryKey: ['email-preferences'],
+    queryFn: () => authApi.getEmailPreferences().then((r) => r.data.data),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Partial<EmailPreferences>) => authApi.setEmailPreferences(data),
+    onSuccess: () => {
+      toast({ title: '偏好已保存' });
+      queryClient.invalidateQueries({ queryKey: ['email-preferences'] });
+    },
+    onError: (e: any) => {
+      toast({
+        title: '保存失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleToggle = (key: keyof EmailPreferences) => {
+    if (!preferences) return;
+    updateMutation.mutate({ [key]: !preferences[key] });
+  };
+
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground">加载中...</div>;
+  }
+
+  const preferenceItems = [
+    { key: 'mention' as const, label: '@提及通知', desc: '当有人在文件或评论中@您时发送邮件' },
+    { key: 'share_received' as const, label: '分享接收通知', desc: '当他人分享文件给您时发送邮件' },
+    { key: 'quota_warning' as const, label: '配额警告', desc: '存储空间即将用尽时发送警告邮件' },
+    { key: 'ai_complete' as const, label: 'AI处理完成', desc: 'AI摘要或标签处理完成时发送邮件' },
+    { key: 'system' as const, label: '系统通知', desc: '重要的系统更新和安全提醒' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {preferenceItems.map((item) => (
+        <div key={item.key} className="flex items-start justify-between gap-4 p-3 rounded-lg border">
+          <div className="flex-1">
+            <p className="text-sm font-medium">{item.label}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+          </div>
+          <button
+            onClick={() => handleToggle(item.key)}
+            disabled={updateMutation.isPending}
+            className={cn(
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+              preferences?.[item.key] ? 'bg-primary' : 'bg-muted'
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                preferences?.[item.key] ? 'translate-x-6' : 'translate-x-1'
+              )}
+            />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -458,6 +528,23 @@ export default function Settings() {
                 </p>
                 <EmailChangeForm />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">邮件通知偏好</CardTitle>
+                  <CardDescription>选择您希望接收的邮件通知类型</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <EmailPreferencesForm />
             </CardContent>
           </Card>
         </>
