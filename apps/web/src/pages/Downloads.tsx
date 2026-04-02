@@ -135,7 +135,7 @@ function TaskItem({
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
           <Link className="h-3 w-3 flex-shrink-0" />
-          <span className="truncate max-w-[320px]">{task.url}</span>
+          <span className="truncate">{task.url}</span>
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
           {task.fileSize ? <span>{formatBytes(task.fileSize)}</span> : null}

@@ -77,16 +77,16 @@ export default function Starred() {
 
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate text-sm">{file.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
-                  {!file.isFolder && <span>{formatBytes(file.size)}</span>}
-                  {!file.isFolder && <span>·</span>}
-                  <span>{formatDate(file.updatedAt)}</span>
+                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap min-w-0">
+                  {!file.isFolder && <span className="flex-shrink-0">{formatBytes(file.size)}</span>}
+                  {!file.isFolder && <span className="flex-shrink-0">·</span>}
+                  <span className="flex-shrink-0">{formatDate(file.updatedAt)}</span>
                   {file.path && (
                     <>
-                      <span>·</span>
-                      <span className="truncate flex items-center gap-1">
-                        <FolderOpen className="h-3 w-3" />
-                        {file.path}
+                      <span className="flex-shrink-0">·</span>
+                      <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+                        <FolderOpen className="h-3 w-3 flex-shrink-0" />
+                        <span className="truncate">{file.path}</span>
                       </span>
                     </>
                   )}
@@ -94,7 +94,7 @@ export default function Starred() {
               </div>
 
               <div
-                className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity touch-visible"
                 onClick={(e) => e.stopPropagation()}
               >
                 <StarButton

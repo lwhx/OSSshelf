@@ -810,7 +810,7 @@ export default function Files() {
                         {item.query}
                       </button>
                       <button
-                        className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                        className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all touch-visible"
                         onMouseDown={async (e) => {
                           e.stopPropagation();
                           await searchApi.deleteHistory(item.id);
@@ -1104,7 +1104,7 @@ export default function Files() {
           {activeUploads.map(([key, progress]) => (
             <div key={key} className="bg-card border rounded-lg px-4 py-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-sm font-medium truncate max-w-[200px]">
+                <span className="text-sm font-medium truncate flex-1 min-w-0">
                   {decodeFileName(key.split('-').slice(0, -2).join('-'))}
                 </span>
                 <span className="text-sm text-muted-foreground ml-2">{progress}%</span>

@@ -192,7 +192,7 @@ export function ListItem({
         </p>
       </div>
       <div
-        className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity"
+        className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity touch-visible"
         onClick={(e) => e.stopPropagation()}
       >
         {canPreview && (

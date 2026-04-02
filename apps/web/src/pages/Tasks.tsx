@@ -347,8 +347,9 @@ export default function Tasks() {
   };
 
   return (
+    <>
+    <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e)} />
     <div className="space-y-6">
-      <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e)} />
 
       <div>
         <h1 className="text-xl lg:text-2xl font-bold">上传任务</h1>
@@ -503,6 +504,7 @@ export default function Tasks() {
         </>
       )}
     </div>
+    </>
   );
 }
 

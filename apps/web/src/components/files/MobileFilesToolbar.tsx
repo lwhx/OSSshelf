@@ -316,7 +316,7 @@ export function MobileSearchPanel({
                   {item.query}
                 </button>
                 <button
-                  className="px-3 py-3 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                  className="px-3 py-3 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all touch-visible"
                   onMouseDown={(e) => {
                     e.stopPropagation();
                     onDeleteHistoryItem(item.id);

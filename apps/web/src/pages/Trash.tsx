@@ -139,7 +139,7 @@ function TrashItem({ file, onRestore, onDelete, restorePending, deletePending }:
           {(file as any).deletedAt && <span className="ml-2">· 删除于 {formatDate((file as any).deletedAt)}</span>}
         </p>
       </div>
-      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 touch-visible">
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onRestore} disabled={restorePending}>
           <RotateCcw className="h-3 w-3 mr-1" />
           恢复

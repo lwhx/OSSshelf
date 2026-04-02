@@ -376,7 +376,7 @@ function ShareItem({ share, status, isUploadTab, onCopy, onDelete, isPending }: 
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity touch-visible">
         {status === 'active' && (
           <>
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => onCopy(share.id, share)}>
