@@ -23,6 +23,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useIsMobile } from '@/hooks/useResponsive';
 import {
   X,
   Download,
@@ -87,12 +88,15 @@ interface FilePreviewProps {
 }
 
 export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit, onVersionHistory }: FilePreviewProps) {
+  const isMobile = useIsMobile();
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
-  const [windowSize, setWindowSize] = useState<WindowSize>('medium');
+  const [windowSize, setWindowSize] = useState<WindowSize>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 'fullscreen' : 'medium'
+  );
   const [showNotes, setShowNotes] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showSmartRename, setShowSmartRename] = useState(false);
