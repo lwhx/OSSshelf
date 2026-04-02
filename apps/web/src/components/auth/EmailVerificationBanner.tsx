@@ -9,7 +9,7 @@ import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
-import { AlertTriangle, from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 export function EmailVerificationBanner() {
   const { user } = useAuthStore();

@@ -18,6 +18,7 @@ export interface User {
   role: UserRole;
   storageQuota: number;
   storageUsed: number;
+  emailVerified: boolean;
   createdAt: string;
   updatedAt: string;
 }

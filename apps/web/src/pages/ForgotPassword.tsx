@@ -80,7 +80,7 @@ export default function ForgotPassword() {
     <Card>
       <CardHeader className="text-center">
         <CardTitle>忘记密码</CardTitle>
-        <CardDescription>输入您的邮箱地址，CardDescription>
+        <CardDescription>输入您的邮箱地址</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
