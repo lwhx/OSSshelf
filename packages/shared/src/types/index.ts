@@ -154,7 +154,10 @@ export type AuditAction =
   | 'webhook.delete'
   | 'admin.user_update'
   | 'admin.config_change'
-  | 'admin.invite_code_generate'
+  | 'admin.invite_code_create'
+  | 'admin.email_config_update'
+  | 'admin.email_test'
+  | 'admin.email_broadcast'
   | 'admin.invite_code_revoke';
 
 export interface LoginAttempt {

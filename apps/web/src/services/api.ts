@@ -79,6 +79,15 @@ export const authApi = {
   devices: () => api.get<ApiResponse<UserDevice[]>>('/api/auth/devices'),
   deleteDevice: (deviceId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
+  verifyEmail: (token: string) => api.get<ApiResponse<{ message: string }>>(`/api/auth/verify-email?token=${token}`),
+  resendVerification: (params: { email: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/resend-verification', params),
+  forgotPassword: (params: { email: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/forgot-password', params),
+  resetPassword: (params: { token: string; newPassword: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/reset-password', params),
+  changeEmail: (params: { newEmail: string; password: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/change-email', params),
 };
 
 export interface BucketStats {
@@ -575,6 +584,19 @@ export const adminApi = {
     api.get<ApiResponse<{ items: AuditLog[]; total: number; page: number; limit: number }>>('/api/admin/audit-logs', {
       params,
     }),
+  getEmailConfig: () =>
+    api.get<
+      ApiResponse<{ apiKey?: string; fromAddress?: string; fromName?: string; configured?: boolean } | null>
+    >('/api/admin/email/config'),
+  setEmailConfig: (data: { apiKey: string; fromAddress: string; fromName: string }) =>
+    api.put<ApiResponse<{ message: string }>>('/api/admin/email/config', data),
+  testEmail: (data?: { to?: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/admin/email/test', data),
+  broadcastEmail: (data: { subject: string; body: string; userFilter?: { role?: string; active?: boolean } }) =>
+    api.post<ApiResponse<{ message: string; total: number; successCount: number; failCount: number }>>(
+      '/api/admin/email/broadcast',
+      data
+    ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

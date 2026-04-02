@@ -19,6 +19,7 @@ import { Toaster } from '@/components/ui/Toaster';
 import { MobileBottomNav } from '@/components/layouts/MobileBottomNav';
 import { PWAPrompt } from '@/components/ui/PWAInstallPrompt';
 import { NotificationBell } from '@/components/notifications';
+import { EmailVerificationBanner } from '@/components/auth/EmailVerificationBanner';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import {
@@ -153,6 +154,7 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen bg-background">
+      <EmailVerificationBanner />
       {/* 移动端顶部栏 - 精简版 */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-b px-3 py-2.5 flex items-center justify-between safe-top">
         <div className="flex items-center gap-2">

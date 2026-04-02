@@ -6,6 +6,7 @@
  * - 统一的通知创建入口
  * - 支持多种通知类型
  * - 使用 waitUntil 确保通知在 Cloudflare Workers 中正确执行
+ * - 邮件通知集成
  */
 
 import { getDb, users, files } from '../db';
@@ -13,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { notifications } from '../db';
 import type { Env } from '../types/env';
 import type { Context } from 'hono';
+import { sendEmail, emailTemplates, parseEmailPreferences, shouldSendEmail } from './emailService';
 
 export type NotificationType =
   | 'share_received'
@@ -69,6 +71,27 @@ export async function createNotification(
     isRead: false,
     createdAt: new Date().toISOString(),
   });
+
+  const user = await db
+    .select({ name: users.name, email: users.email, emailPreferences: users.emailPreferences })
+    .from(users)
+    .where(eq(users.id, params.userId))
+    .get();
+
+  if (user) {
+    const preferences = parseEmailPreferences(user.emailPreferences);
+    
+    if (shouldSendEmail(params.type, preferences)) {
+      const emailHtml = emailTemplates.systemNotify(
+        user.name || user.email,
+        params.title,
+        params.body || '',
+        params.data?.link as string | undefined
+      );
+
+      await sendEmail(env, user.email, params.title, emailHtml);
+    }
+  }
 
   return id;
 }
