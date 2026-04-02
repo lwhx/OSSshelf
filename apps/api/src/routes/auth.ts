@@ -452,6 +452,7 @@ app.get('/me', authMiddleware, async (c) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      emailVerified: user.emailVerified,
       storageQuota: user.storageQuota,
       storageUsed: actualStorageUsed,
       createdAt: user.createdAt,
