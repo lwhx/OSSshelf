@@ -88,8 +88,7 @@ export const authApi = {
     api.post<ApiResponse<{ message: string }>>('/api/auth/reset-password', params),
   changeEmail: (params: { newEmail: string; password: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/change-email', params),
-  getEmailPreferences: () =>
-    api.get<ApiResponse<EmailPreferences>>('/api/auth/email-preferences'),
+  getEmailPreferences: () => api.get<ApiResponse<EmailPreferences>>('/api/auth/email-preferences'),
   setEmailPreferences: (data: Partial<EmailPreferences>) =>
     api.put<ApiResponse<EmailPreferences>>('/api/auth/email-preferences', data),
 };
@@ -614,13 +613,12 @@ export const adminApi = {
       params,
     }),
   getEmailConfig: () =>
-    api.get<
-      ApiResponse<{ apiKey?: string; fromAddress?: string; fromName?: string; configured?: boolean } | null>
-    >('/api/admin/email/config'),
+    api.get<ApiResponse<{ apiKey?: string; fromAddress?: string; fromName?: string; configured?: boolean } | null>>(
+      '/api/admin/email/config'
+    ),
   setEmailConfig: (data: { apiKey: string; fromAddress: string; fromName: string }) =>
     api.put<ApiResponse<{ message: string }>>('/api/admin/email/config', data),
-  testEmail: (data?: { to?: string }) =>
-    api.post<ApiResponse<{ message: string }>>('/api/admin/email/test', data),
+  testEmail: (data?: { to?: string }) => api.post<ApiResponse<{ message: string }>>('/api/admin/email/test', data),
   broadcastEmail: (data: { subject: string; body: string; userFilter?: { role?: string; active?: boolean } }) =>
     api.post<ApiResponse<{ message: string; total: number; successCount: number; failCount: number }>>(
       '/api/admin/email/broadcast',

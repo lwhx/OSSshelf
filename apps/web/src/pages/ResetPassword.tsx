@@ -56,7 +56,7 @@ export default function ResetPassword() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!newPassword || newPassword.length < 6) {
       toast({
         title: '密码格式错误',

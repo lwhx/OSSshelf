@@ -55,17 +55,11 @@ export default function ForgotPassword() {
             </div>
           </div>
           <CardTitle>邮件已发送</CardTitle>
-          <CardDescription>
-            如果邮箱存在，您将收到重置密码邮件
-          </CardDescription>
+          <CardDescription>如果邮箱存在，您将收到重置密码邮件</CardDescription>
         </CardHeader>
         <CardContent className="text-center">
-          <p className="text-sm text-muted-foreground mb-4">
-            请检查您的邮箱（包括垃圾邮件文件夹)
-          </p>
-          <p className="text-xs text-muted-foreground">
-            邮件链接有效期为1小时
-          </p>
+          <p className="text-sm text-muted-foreground mb-4">请检查您的邮箱（包括垃圾邮件文件夹）</p>
+          <p className="text-xs text-muted-foreground">邮件链接有效期为1小时</p>
         </CardContent>
         <CardFooter className="flex justify-center">
           <Link to="/login" className="text-sm text-primary hover:underline">
@@ -97,15 +91,16 @@ export default function ForgotPassword() {
               required
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            我们将向您的注册邮箱发送密码重置链接
-          </p>
+          <p className="text-xs text-muted-foreground">我们将向您的注册邮箱发送密码重置链接</p>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
           <Button type="submit" className="w-full" disabled={forgotMutation.isPending}>
             {forgotMutation.isPending ? '发送中...' : '发送重置邮件'}
           </Button>
-          <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground text-center flex items-center gap-1">
+          <Link
+            to="/login"
+            className="text-sm text-muted-foreground hover:text-foreground text-center flex items-center gap-1"
+          >
             <ArrowLeft className="h-3 w-3" />
             返回登录
           </Link>

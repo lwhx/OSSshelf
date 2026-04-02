@@ -6,7 +6,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '@/services/api';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
+import { useAuthStore } from '@/stores/auth';
+import { Card, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
@@ -14,7 +15,8 @@ export default function VerifyEmail() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
-  
+  const { isAuthenticated, initialize } = useAuthStore();
+
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
 
@@ -25,13 +27,20 @@ export default function VerifyEmail() {
       return;
     }
 
-    authApi.verifyEmail(token)
-      .then((response) => {
+    authApi
+      .verifyEmail(token)
+      .then(async (response) => {
         if (response.data.success) {
           setStatus('success');
           setMessage('邮箱验证成功！');
+
+          // 如果用户已登录，刷新用户信息
+          if (isAuthenticated) {
+            await initialize();
+          }
+
           setTimeout(() => {
-            navigate('/login');
+            navigate(isAuthenticated ? '/' : '/login');
           }, 2000);
         } else {
           setStatus('error');
@@ -42,7 +51,7 @@ export default function VerifyEmail() {
         setStatus('error');
         setMessage(error.response?.data?.error?.message || '验证失败，请重试');
       });
-  }, [token, navigate]);
+  }, [token, navigate, isAuthenticated, initialize]);
 
   return (
     <Card className="max-w-md mx-auto">
@@ -53,7 +62,7 @@ export default function VerifyEmail() {
             <p className="text-muted-foreground">正在验证邮箱...</p>
           </div>
         )}
-        
+
         {status === 'success' && (
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
@@ -63,7 +72,7 @@ export default function VerifyEmail() {
             <CardDescription className="text-center">{message}</CardDescription>
           </div>
         )}
-        
+
         {status === 'error' && (
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
@@ -71,10 +80,7 @@ export default function VerifyEmail() {
             </div>
             <CardTitle className="text-center">验证失败</CardTitle>
             <CardDescription className="text-center">{message}</CardDescription>
-            <Button
-              className="mt-4"
-              onClick={() => navigate('/login')}
-            >
+            <Button className="mt-4" onClick={() => navigate('/login')}>
               返回登录
             </Button>
           </div>

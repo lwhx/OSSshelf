@@ -27,7 +27,7 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
 import { AppError, throwAppError } from '../middleware/error';
 import { createNotification, sendNotification } from '../lib/notificationUtils';
-import { sendEmail, emailTemplates } from '../lib/emailService';
+import { sendEmail, emailTemplates, parseEmailPreferences, shouldSendEmail } from '../lib/emailService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -814,11 +814,7 @@ app.get('/verify-email', async (c) => {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  const tokenRecord = await db
-    .select()
-    .from(emailTokens)
-    .where(eq(emailTokens.tokenHash, tokenHashHex))
-    .get();
+  const tokenRecord = await db.select().from(emailTokens).where(eq(emailTokens.tokenHash, tokenHashHex)).get();
 
   if (!tokenRecord) {
     throwAppError('EMAIL_TOKEN_INVALID', '验证链接无效');
@@ -832,15 +828,9 @@ app.get('/verify-email', async (c) => {
     throwAppError('EMAIL_TOKEN_EXPIRED', '验证链接已过期');
   }
 
-  await db
-    .update(users)
-    .set({ emailVerified: true, updatedAt: now })
-    .where(eq(users.id, tokenRecord.userId));
+  await db.update(users).set({ emailVerified: true, updatedAt: now }).where(eq(users.id, tokenRecord.userId));
 
-  await db
-    .update(emailTokens)
-    .set({ usedAt: now })
-    .where(eq(emailTokens.id, tokenRecord.id));
+  await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
 
   await createAuditLog({
     env: c.env,
@@ -983,11 +973,7 @@ app.post('/reset-password', async (c) => {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  const tokenRecord = await db
-    .select()
-    .from(emailTokens)
-    .where(eq(emailTokens.tokenHash, tokenHashHex))
-    .get();
+  const tokenRecord = await db.select().from(emailTokens).where(eq(emailTokens.tokenHash, tokenHashHex)).get();
 
   if (!tokenRecord || tokenRecord.type !== 'reset_password') {
     throwAppError('EMAIL_TOKEN_INVALID', '重置链接无效');
@@ -1008,16 +994,16 @@ app.post('/reset-password', async (c) => {
     .set({ passwordHash, passwordChangedAt: now, updatedAt: now })
     .where(eq(users.id, tokenRecord.userId));
 
-  await db
-    .update(emailTokens)
-    .set({ usedAt: now })
-    .where(eq(emailTokens.id, tokenRecord.id));
+  await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
 
   const user = await db.select().from(users).where(eq(users.id, tokenRecord.userId)).get();
 
   if (user && user.email) {
-    const html = emailTemplates.passwordChanged(user.name || user.email, getClientIp(c) || 'unknown', now);
-    await sendEmail(c.env, user.email, '密码已更改', html);
+    const preferences = parseEmailPreferences(user.emailPreferences);
+    if (shouldSendEmail('password_changed', preferences)) {
+      const html = emailTemplates.passwordChanged(user.name || user.email, getClientIp(c) || 'unknown', now);
+      await sendEmail(c.env, user.email, '密码已更改', html);
+    }
   }
 
   await createAuditLog({
@@ -1106,11 +1092,7 @@ app.get('/confirm-change-email', async (c) => {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  const tokenRecord = await db
-    .select()
-    .from(emailTokens)
-    .where(eq(emailTokens.tokenHash, tokenHashHex))
-    .get();
+  const tokenRecord = await db.select().from(emailTokens).where(eq(emailTokens.tokenHash, tokenHashHex)).get();
 
   if (!tokenRecord || tokenRecord.type !== 'change_email') {
     throwAppError('EMAIL_TOKEN_INVALID', '验证链接无效');
@@ -1131,18 +1113,19 @@ app.get('/confirm-change-email', async (c) => {
 
   const oldEmail = user.email;
 
-  await db
-    .update(users)
-    .set({ email: tokenRecord.email!, updatedAt: now })
-    .where(eq(users.id, tokenRecord.userId));
+  await db.update(users).set({ email: tokenRecord.email!, updatedAt: now }).where(eq(users.id, tokenRecord.userId));
 
-  await db
-    .update(emailTokens)
-    .set({ usedAt: now })
-    .where(eq(emailTokens.id, tokenRecord.id));
+  await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
 
-  const html = emailTemplates.systemNotify(oldEmail, '邮箱已更换', `您的账户邮箱已从 ${oldEmail} 更换为 ${tokenRecord.email}`);
-  await sendEmail(c.env, oldEmail, '邮箱已更换', html);
+  const preferences = parseEmailPreferences(user.emailPreferences);
+  if (shouldSendEmail('system', preferences)) {
+    const html = emailTemplates.systemNotify(
+      oldEmail,
+      '邮箱已更换',
+      `您的账户邮箱已从 ${oldEmail} 更换为 ${tokenRecord.email}`
+    );
+    await sendEmail(c.env, oldEmail, '邮箱已更换', html);
+  }
 
   await createAuditLog({
     env: c.env,
@@ -1225,10 +1208,7 @@ app.put('/email-preferences', authMiddleware, async (c) => {
   const updatedPrefs = { ...currentPrefs, ...result.data };
   const prefsJson = JSON.stringify(updatedPrefs);
 
-  await db
-    .update(users)
-    .set({ emailPreferences: prefsJson, updatedAt: now })
-    .where(eq(users.id, userId));
+  await db.update(users).set({ emailPreferences: prefsJson, updatedAt: now }).where(eq(users.id, userId));
 
   return c.json({ success: true, data: updatedPrefs });
 });

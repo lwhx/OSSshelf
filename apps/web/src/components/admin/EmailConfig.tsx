@@ -117,10 +117,10 @@ export function EmailConfig() {
             Resend API 配置
           </CardTitle>
           <CardDescription>
-            获取API Key: 
-            <a 
-              href="https://resend.com/api-keys" 
-              target="_blank" 
+            获取API Key:
+            <a
+              href="https://resend.com/api-keys"
+              target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline ml-1"
             >
@@ -141,9 +141,7 @@ export function EmailConfig() {
               onChange={(e) => setApiKey(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              {isConfigured 
-                ? '留空保持现有配置，输入新值将覆盖' 
-                : '从Resend控制台获取API Key'}
+              {isConfigured ? '留空保持现有配置，输入新值将覆盖' : '从Resend控制台获取API Key'}
             </p>
           </div>
 
@@ -158,9 +156,7 @@ export function EmailConfig() {
               value={fromAddress}
               onChange={(e) => setFromAddress(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              必须是在Resend中验证过的域名邮箱
-            </p>
+            <p className="text-xs text-muted-foreground">必须是在Resend中验证过的域名邮箱</p>
           </div>
 
           <div className="space-y-2">
@@ -218,11 +214,7 @@ export function EmailConfig() {
                 />
               </div>
 
-              <Button
-                onClick={() => testMutation.mutate()}
-                disabled={testMutation.isPending}
-                variant="outline"
-              >
+              <Button onClick={() => testMutation.mutate()} disabled={testMutation.isPending} variant="outline">
                 {testMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -291,11 +283,7 @@ export function EmailConfig() {
 
               <Button
                 onClick={() => broadcastMutation.mutate()}
-                disabled={
-                  broadcastMutation.isPending ||
-                  !broadcastSubject ||
-                  !broadcastBody
-                }
+                disabled={broadcastMutation.isPending || !broadcastSubject || !broadcastBody}
                 variant="outline"
               >
                 {broadcastMutation.isPending ? (

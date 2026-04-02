@@ -34,7 +34,6 @@ import {
   Shield,
   ShieldCheck,
   ChevronLeft,
-  ChevronRight,
   Keyboard,
   Upload,
   Download,
@@ -107,7 +106,7 @@ export default function MainLayout() {
   });
   const trashCount = (trashItems as any[]).length;
 
-  const { canGoBack, canGoForward, goBack, goForward } = useFileStore();
+  const { canGoBack, goBack, goForward } = useFileStore();
 
   const isActive = (item: (typeof navItems)[0]) =>
     item.exact ? location.pathname === item.path : location.pathname.startsWith(item.path);

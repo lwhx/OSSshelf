@@ -112,18 +112,8 @@ function EmailChangeForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <Input
-        type="email"
-        placeholder="新邮箱地址"
-        value={newEmail}
-        onChange={(e) => setNewEmail(e.target.value)}
-      />
-      <Input
-        type="password"
-        placeholder="当前密码"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
+      <Input type="email" placeholder="新邮箱地址" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+      <Input type="password" placeholder="当前密码" value={password} onChange={(e) => setPassword(e.target.value)} />
       <Button type="submit" size="sm" disabled={changeEmailMutation.isPending}>
         {changeEmailMutation.isPending ? '发送中...' : '发送确认邮件'}
       </Button>
@@ -505,13 +495,16 @@ export default function Settings() {
                     您的邮箱尚未验证，部分功能受限。
                     <button
                       onClick={() => {
-                        authApi.resendVerification({ email: user?.email || '' })
+                        authApi
+                          .resendVerification({ email: user?.email || '' })
                           .then(() => toast({ title: '验证邮件已发送' }))
-                          .catch((e) => toast({
-                            title: '发送失败',
-                            description: e.response?.data?.error?.message,
-                            variant: 'destructive',
-                          }));
+                          .catch((e) =>
+                            toast({
+                              title: '发送失败',
+                              description: e.response?.data?.error?.message,
+                              variant: 'destructive',
+                            })
+                          );
                       }}
                       className="text-primary hover:underline ml-1"
                     >
@@ -523,9 +516,7 @@ export default function Settings() {
 
               <div className="pt-4 border-t">
                 <h4 className="text-sm font-medium mb-3">更换邮箱</h4>
-                <p className="text-xs text-muted-foreground mb-3">
-                  更换邮箱后需要重新验证，新邮箱将作为登录账号
-                </p>
+                <p className="text-xs text-muted-foreground mb-3">更换邮箱后需要重新验证，新邮箱将作为登录账号</p>
                 <EmailChangeForm />
               </div>
             </CardContent>

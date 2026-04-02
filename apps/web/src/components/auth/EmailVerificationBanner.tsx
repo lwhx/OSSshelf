@@ -19,18 +19,18 @@ export function EmailVerificationBanner() {
   const resendMutation = useMutation({
     mutationFn: () => authApi.resendVerification({ email: user?.email || '' }),
     onSuccess: () => {
-    toast({
-      title: '验证邮件已发送',
-      description: '请查收邮件并点击验证链接',
-    });
-  },
+      toast({
+        title: '验证邮件已发送',
+        description: '请查收邮件并点击验证链接',
+      });
+    },
     onError: (error: any) => {
-    toast({
-      title: '发送失败',
-      description: error.response?.data?.error?.message || '请稍后重试',
-      variant: 'destructive',
-    });
-  },
+      toast({
+        title: '发送失败',
+        description: error.response?.data?.error?.message || '请稍后重试',
+        variant: 'destructive',
+      });
+    },
   });
 
   if (!user || user.emailVerified || closed) {
@@ -43,12 +43,8 @@ export function EmailVerificationBanner() {
         <div className="flex items-center gap-3 flex-1">
           <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-            <span className="text-sm font-medium text-amber-900">
-              邮箱未验证
-            </span>
-            <span className="text-xs text-amber-700">
-              部分功能受限，请验证邮箱以解锁全部功能
-            </span>
+            <span className="text-sm font-medium text-amber-900">邮箱未验证</span>
+            <span className="text-xs text-amber-700">部分功能受限，请验证邮箱以解锁全部功能</span>
           </div>
         </div>
         <div className="flex items-center gap-2">

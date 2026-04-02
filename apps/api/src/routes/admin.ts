@@ -517,10 +517,7 @@ app.post('/email/test', async (c) => {
 
   const configStr = await c.env.KV.get('config:resend');
   if (!configStr) {
-    return c.json(
-      { success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } },
-      500
-    );
+    return c.json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } }, 500);
   }
 
   const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
@@ -568,10 +565,7 @@ app.post('/email/test', async (c) => {
     return c.json({ success: true, data: { message: `测试邮件已发送到 ${to}` } });
   } catch (error) {
     console.error('Email test error:', error);
-    return c.json(
-      { success: false, error: { code: 'EMAIL_SEND_FAILED', message: '邮件发送失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: 'EMAIL_SEND_FAILED', message: '邮件发送失败' } }, 500);
   }
 });
 
@@ -590,10 +584,7 @@ app.post('/email/broadcast', async (c) => {
 
   const configStr = await c.env.KV.get('config:resend');
   if (!configStr) {
-    return c.json(
-      { success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } },
-      500
-    );
+    return c.json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } }, 500);
   }
 
   const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
@@ -607,9 +598,14 @@ app.post('/email/broadcast', async (c) => {
     conditions.push(eq(users.role, 'user'));
   }
 
-  const allUsers = conditions.length > 0 
-    ? await db.select().from(users).where(and(...conditions)).all()
-    : await db.select().from(users).all();
+  const allUsers =
+    conditions.length > 0
+      ? await db
+          .select()
+          .from(users)
+          .where(and(...conditions))
+          .all()
+      : await db.select().from(users).all();
 
   const batchSize = 100;
   const batches = [];
@@ -653,7 +649,7 @@ app.post('/email/broadcast', async (c) => {
     });
 
     await Promise.all(promises);
-    
+
     if (batches.indexOf(batch) < batches.length - 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }

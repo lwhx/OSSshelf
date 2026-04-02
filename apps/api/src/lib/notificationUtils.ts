@@ -54,10 +54,7 @@ interface CreateNotificationParams {
   data?: Record<string, unknown>;
 }
 
-export async function createNotification(
-  env: Env,
-  params: CreateNotificationParams
-): Promise<string> {
+export async function createNotification(env: Env, params: CreateNotificationParams): Promise<string> {
   const db = getDb(env.DB);
   const id = crypto.randomUUID();
 
@@ -80,7 +77,7 @@ export async function createNotification(
 
   if (user) {
     const preferences = parseEmailPreferences(user.emailPreferences);
-    
+
     if (shouldSendEmail(params.type, preferences)) {
       const emailHtml = emailTemplates.systemNotify(
         user.name || user.email,
@@ -126,8 +123,15 @@ export async function getUserInfo(env: Env, userId: string): Promise<{ name: str
   return user || null;
 }
 
-export async function getFileInfo(env: Env, fileId: string): Promise<{ id: string; name: string; isFolder: boolean } | null> {
+export async function getFileInfo(
+  env: Env,
+  fileId: string
+): Promise<{ id: string; name: string; isFolder: boolean } | null> {
   const db = getDb(env.DB);
-  const file = await db.select({ id: files.id, name: files.name, isFolder: files.isFolder }).from(files).where(eq(files.id, fileId)).get();
+  const file = await db
+    .select({ id: files.id, name: files.name, isFolder: files.isFolder })
+    .from(files)
+    .where(eq(files.id, fileId))
+    .get();
   return file || null;
 }

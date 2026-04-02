@@ -31,7 +31,7 @@ export interface EmailPreferences {
 export async function getResendConfig(kv: KVNamespace): Promise<ResendConfig | null> {
   const configStr = await kv.get(KV_CONFIG_KEY);
   if (!configStr) return null;
-  
+
   try {
     return JSON.parse(configStr) as ResendConfig;
   } catch {
@@ -58,7 +58,7 @@ export async function sendEmail(
     const res = await fetch(RESEND_API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -336,7 +336,9 @@ export const emailTemplates = {
               <p style="margin: 0 0 ${link ? '30' : '0'}px 0; font-size: 16px; line-height: 24px; color: #374151;">
                 ${body}
               </p>
-              ${link ? `
+              ${
+                link
+                  ? `
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
@@ -346,7 +348,9 @@ export const emailTemplates = {
                   </td>
                 </tr>
               </table>
-              ` : ''}
+              `
+                  : ''
+              }
             </td>
           </tr>
           <tr>
@@ -391,23 +395,20 @@ export function parseEmailPreferences(preferencesStr: string): EmailPreferences 
   }
 }
 
-export function shouldSendEmail(
-  notificationType: string,
-  preferences: EmailPreferences
-): boolean {
+export function shouldSendEmail(notificationType: string, preferences: EmailPreferences): boolean {
   const typeMap: Record<string, keyof EmailPreferences> = {
-    'mention': 'mention',
-    'share_received': 'share_received',
-    'upload_link_received': 'share_received',
-    'permission_granted': 'share_received',
-    'quota_warning': 'quota_warning',
-    'ai_complete': 'ai_complete',
-    'system': 'system',
-    'password_changed': 'system',
+    mention: 'mention',
+    share_received: 'share_received',
+    upload_link_received: 'share_received',
+    permission_granted: 'share_received',
+    quota_warning: 'quota_warning',
+    ai_complete: 'ai_complete',
+    system: 'system',
+    password_changed: 'system',
   };
 
   const key = typeMap[notificationType];
   if (!key) return false;
-  
+
   return preferences[key];
 }
