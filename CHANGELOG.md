@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added - 邮件通知系统
 
 #### 核心功能
+
 - **注册邮箱验证**
   - 新用户注册后自动发送验证邮件
   - 邮箱验证链接有效期24小时
@@ -40,6 +41,7 @@ All notable changes to this project will be documented in this file.
   - API: GET/PUT /api/admin/email/config, POST /api/admin/email/test, POST /api/admin/email/broadcast
 
 #### 安全增强
+
 - **JWT失效机制**
   - 密码修改后自动更新 `passwordChangedAt`
   - 密码重置后自动更新 `passwordChangedAt`
@@ -58,6 +60,7 @@ All notable changes to this project will be documented in this file.
   - 防止生产环境使用localhost
 
 #### 数据库变更
+
 - 新增迁移文件 `0018_email.sql`
   - 新增 `email_tokens` 表（存储验证Token）
   - `users` 表新增 `email_verified` 字段
@@ -65,6 +68,7 @@ All notable changes to this project will be documented in this file.
   - `users` 表新增 `password_changed_at` 字段
 
 #### 前端页面
+
 - 新增页面
   - `VerifyEmail.tsx` - 邮箱验证落地页
   - `ForgotPassword.tsx` - 忘记密码页面
@@ -83,6 +87,7 @@ All notable changes to this project will be documented in this file.
   - MainLayout 集成验证提示横幅
 
 #### 邮件模板
+
 - 5个邮件模板
   - 验证邮箱模板
   - 重置密码模板
@@ -91,6 +96,7 @@ All notable changes to this project will be documented in this file.
   - 系统通知模板
 
 #### GitHub Actions
+
 - 新增 `PUBLIC_URL` 环境变量配置
 - 部署时自动注入环境变量
 
@@ -161,7 +167,7 @@ All notable changes to this project will be documented in this file.
   - 大文件排行 Top 20
   - 存储趋势分析（按天统计上传量）
   - 存储桶统计
-  - API: GET /api/analytics/*
+  - API: GET /api/analytics/\*
 - 通知系统
   - 实时通知铃铛（PC端侧边栏底部、移动端顶部栏）
   - 通知列表弹窗（向上/向下展开自适应）

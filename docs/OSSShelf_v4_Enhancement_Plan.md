@@ -16,11 +16,11 @@
 
 ## 0. 现状诊断总结
 
-| 模块 | 现状评估 | 主要问题 |
-| --- | --- | --- |
-| **邮件通知** | 纯站内通知系统（v3.8.0），用户离线时无任何触达手段 | 注册无验证邮件；忘记密码无重置流程（依赖管理员手动操作）；更换邮箱/密码无安全确认；系统通知无邮件推送 |
-| **账户安全** | JWT + bcrypt，登录限流 5 次/15 分钟，API Key scope 控制 | 无第二因素认证；账号被盗后无任何阻断机制 |
-| **移动端** | Web 已做响应式优化（v3.7.0），MobileBottomNav 等组件 | 无原生 App；无系统相册直传；无后台下载；无离线缓存；无推送通知；Web 在移动端体验受浏览器限制 |
+| 模块         | 现状评估                                                | 主要问题                                                                                              |
+| ------------ | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **邮件通知** | 纯站内通知系统（v3.8.0），用户离线时无任何触达手段      | 注册无验证邮件；忘记密码无重置流程（依赖管理员手动操作）；更换邮箱/密码无安全确认；系统通知无邮件推送 |
+| **账户安全** | JWT + bcrypt，登录限流 5 次/15 分钟，API Key scope 控制 | 无第二因素认证；账号被盗后无任何阻断机制                                                              |
+| **移动端**   | Web 已做响应式优化（v3.7.0），MobileBottomNav 等组件    | 无原生 App；无系统相册直传；无后台下载；无离线缓存；无推送通知；Web 在移动端体验受浏览器限制          |
 
 ---
 
@@ -63,8 +63,8 @@ ALTER TABLE users ADD COLUMN email_preferences TEXT NOT NULL DEFAULT '{}';
 
 interface ResendConfig {
   apiKey: string;
-  fromAddress: string;   // 如 noreply@mail.yourdomain.com
-  fromName: string;      // 如 OSSShelf
+  fromAddress: string; // 如 noreply@mail.yourdomain.com
+  fromName: string; // 如 OSSShelf
 }
 
 // 配置存 KV key: "config:resend"，支持管理面板热更新，无需重部署
@@ -97,11 +97,11 @@ export async function sendEmail(
 
 // 邮件模板函数（返回 HTML 字符串，统一品牌样式）
 export const emailTemplates = {
-  verifyEmail:     (name: string, link: string) => string,
-  resetPassword:   (name: string, link: string) => string,
-  changeEmail:     (name: string, newEmail: string, link: string) => string,
+  verifyEmail: (name: string, link: string) => string,
+  resetPassword: (name: string, link: string) => string,
+  changeEmail: (name: string, newEmail: string, link: string) => string,
   passwordChanged: (name: string, ip: string, time: string) => string,
-  systemNotify:    (name: string, title: string, body: string, link?: string) => string,
+  systemNotify: (name: string, title: string, body: string, link?: string) => string,
 };
 ```
 
@@ -177,14 +177,14 @@ export async function createNotification(env, userId, type, title, body, data?) 
 
 触发邮件通知的系统事件（用户可在个人设置中逐项开关）：
 
-| 事件 | 默认开启 |
-| --- | --- |
-| 被 @提及 | ✅ |
-| 收到文件分享 | ✅ |
-| 存储配额超过 90% | ✅ |
+| 事件                      | 默认开启       |
+| ------------------------- | -------------- |
+| 被 @提及                  | ✅             |
+| 收到文件分享              | ✅             |
+| 存储配额超过 90%          | ✅             |
 | 安全告警（密码/邮箱变更） | ✅（不可关闭） |
-| AI 处理完成 | ❌ |
-| 系统公告（管理员群发） | ✅ |
+| AI 处理完成               | ❌             |
+| 系统公告（管理员群发）    | ✅             |
 
 ### 1.5 管理面板配置
 
@@ -341,11 +341,11 @@ apps/web/src/pages/
 
 ### 3.1 技术选型依据
 
-| 方案 | 复用现有代码 | 原生能力 | 构建复杂度 |
-| --- | --- | --- | --- |
+| 方案                | 复用现有代码                   | 原生能力                        | 构建复杂度            |
+| ------------------- | ------------------------------ | ------------------------------- | --------------------- |
 | React Native (Expo) | 部分（API 调用层、类型、常量） | ✅ 系统相册、后台下载、推送通知 | 低（Expo 托管工作流） |
-| Flutter | ❌ | ✅ | 高（全新技术栈） |
-| PWA | Web 代码复用 | ❌ 后台下载、推送受限 | 极低但能力上限低 |
+| Flutter             | ❌                             | ✅                              | 高（全新技术栈）      |
+| PWA                 | Web 代码复用                   | ❌ 后台下载、推送受限           | 极低但能力上限低      |
 
 选 **Expo (React Native)**。可复用：`packages/shared` 常量、API 调用封装（`services/`）、TypeScript 类型定义。不可复用：所有 UI 组件（Web 基于 DOM，RN 基于 View/Text）。
 
@@ -689,11 +689,11 @@ Week 12（Push 通知 + 设置 + 上架）:
 
 ### 数据库迁移总览
 
-| 编号 | 文件名 | 涉及功能 | Phase |
-| --- | --- | --- | --- |
-| 0017 | `email.sql` | email_tokens、users.email_verified、users.email_preferences | Phase 1 |
-| 0018 | `2fa.sql` | users.totp_*、trusted_devices | Phase 2 |
-| 0019 | `push_tokens.sql` | push_tokens | Phase 3 |
+| 编号 | 文件名            | 涉及功能                                                    | Phase   |
+| ---- | ----------------- | ----------------------------------------------------------- | ------- |
+| 0017 | `email.sql`       | email_tokens、users.email_verified、users.email_preferences | Phase 1 |
+| 0018 | `2fa.sql`         | users.totp\_\*、trusted_devices                             | Phase 2 |
+| 0019 | `push_tokens.sql` | push_tokens                                                 | Phase 3 |
 
 ---
 

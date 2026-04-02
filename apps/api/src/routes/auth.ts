@@ -401,6 +401,7 @@ app.post('/login', async (c) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        emailVerified: user.emailVerified,
         storageQuota: user.storageQuota,
         storageUsed: user.storageUsed,
         createdAt: user.createdAt,
@@ -883,6 +884,11 @@ app.post('/resend-verification', async (c) => {
     .join('');
   const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
+  await db
+    .update(emailTokens)
+    .set({ usedAt: now })
+    .where(and(eq(emailTokens.userId, user.id), eq(emailTokens.type, 'verify_email'), isNull(emailTokens.usedAt)));
+
   await db.insert(emailTokens).values({
     id: crypto.randomUUID(),
     userId: user.id,
@@ -917,6 +923,12 @@ app.post('/forgot-password', async (c) => {
     throwAppError('VALIDATION_ERROR', '请输入邮箱地址');
   }
 
+  const rateKey = `rate:forgot:${email}`;
+  const rateExists = await c.env.KV.get(rateKey);
+  if (rateExists) {
+    throwAppError('RATE_LIMIT_EXCEEDED', '请等待1分钟后重试');
+  }
+
   const db = getDb(c.env.DB);
   const user = await db.select().from(users).where(eq(users.email, email)).get();
 
@@ -931,6 +943,11 @@ app.post('/forgot-password', async (c) => {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
   const resetExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  await db
+    .update(emailTokens)
+    .set({ usedAt: now })
+    .where(and(eq(emailTokens.userId, user.id), eq(emailTokens.type, 'reset_password'), isNull(emailTokens.usedAt)));
 
   await db.insert(emailTokens).values({
     id: crypto.randomUUID(),
@@ -950,6 +967,8 @@ app.post('/forgot-password', async (c) => {
   const resetLink = `${c.env.PUBLIC_URL}/reset-password?token=${resetToken}`;
   const html = emailTemplates.resetPassword(user.name || user.email, resetLink);
   await sendEmail(c.env, user.email, '重置您的密码', html);
+
+  await c.env.KV.put(rateKey, '1', { expirationTtl: 60 });
 
   return c.json({ success: true, data: { message: '如果邮箱存在，您将收到重置邮件' } });
 });
@@ -1057,6 +1076,11 @@ app.post('/change-email', authMiddleware, async (c) => {
     .join('');
   const changeExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
+  await db
+    .update(emailTokens)
+    .set({ usedAt: now })
+    .where(and(eq(emailTokens.userId, userId), eq(emailTokens.type, 'change_email'), isNull(emailTokens.usedAt)));
+
   await db.insert(emailTokens).values({
     id: crypto.randomUUID(),
     userId,
@@ -1114,7 +1138,10 @@ app.get('/confirm-change-email', async (c) => {
 
   const oldEmail = user.email;
 
-  await db.update(users).set({ email: tokenRecord.email!, updatedAt: now }).where(eq(users.id, tokenRecord.userId));
+  await db
+    .update(users)
+    .set({ email: tokenRecord.email!, emailVerified: false, updatedAt: now })
+    .where(eq(users.id, tokenRecord.userId));
 
   await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
 

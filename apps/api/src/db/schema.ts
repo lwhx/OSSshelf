@@ -573,6 +573,24 @@ export const emailTokens = sqliteTable(
   })
 );
 
+export const userStars = sqliteTable(
+  'user_stars',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex('idx_user_stars_unique').on(table.userId, table.fileId),
+    userIdx: index('idx_user_stars_user').on(table.userId),
+    fileIdIdx: index('idx_user_stars_file').on(table.fileId),
+  })
+);
+
 export type File = typeof files.$inferSelect;
 export type FileVersion = typeof fileVersions.$inferSelect;
 export type FileNote = typeof fileNotes.$inferSelect;

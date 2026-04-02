@@ -129,6 +129,7 @@
 **部署注意事项**
 
 1. **必须配置 PUBLIC_URL**
+
    ```toml
    # wrangler.toml
    [vars]
@@ -136,6 +137,7 @@
    ```
 
 2. **执行数据库迁移**
+
    ```bash
    wrangler d1 execute ossshelf-db --file=./apps/api/migrations/0018_email.sql
    ```
@@ -145,6 +147,7 @@
    - 在管理面板配置API Key和发件人信息
 
 ### v3.8.0 (2026-04-02)
+
 - 迁移文件：`0014_ai_features.sql`
 
 **升级步骤**
@@ -415,14 +418,14 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 必需 Secrets
 
-| Secret 名称                  | 必需 | 说明                |
-| ---------------------------- | ---- | ------------------- |
-| `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限    |
-| `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识 |
-| `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定       |
-| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定     |
-| `JWT_SECRET`                 | ✅   | JWT 签名密钥        |
-| `CORS_ORIGINS`               | ✅   | CORS 允许域名       |
+| Secret 名称                  | 必需 | 说明                                     |
+| ---------------------------- | ---- | ---------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限                         |
+| `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识                      |
+| `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定                            |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定                          |
+| `JWT_SECRET`                 | ✅   | JWT 签名密钥                             |
+| `CORS_ORIGINS`               | ✅   | CORS 允许域名                            |
 | `PUBLIC_URL`                 | ✅   | 应用公网地址，用于生成邮件链接 (v4.0.0+) |
 
 ### 可选 Secrets
@@ -649,6 +652,7 @@ PUBLIC_URL = "https://your-domain.com"
 ```
 
 **要求**:
+
 - ✅ 必须是完整的URL（包含协议）
 - ✅ 不应包含尾部斜杠
 - ✅ 示例：`https://ossshelf.com` 或 `https://app.example.com`
@@ -677,13 +681,13 @@ PUBLIC_URL = "https://your-domain.com"
 
 用户可以在 **设置** → **邮箱设置** 中自定义邮件通知偏好：
 
-| 偏好类型 | 默认值 | 说明 |
-|---------|--------|------|
-| @提及通知 | 开启 | 当有人在文件或评论中@您时发送邮件 |
-| 分享接收通知 | 开启 | 当他人分享文件给您时发送邮件 |
-| 配额警告 | 开启 | 存储空间即将用尽时发送警告邮件 |
-| AI处理完成 | 关闭 | AI摘要或标签处理完成时发送邮件 |
-| 系统通知 | 开启 | 重要的系统更新和安全提醒 |
+| 偏好类型     | 默认值 | 说明                              |
+| ------------ | ------ | --------------------------------- |
+| @提及通知    | 开启   | 当有人在文件或评论中@您时发送邮件 |
+| 分享接收通知 | 开启   | 当他人分享文件给您时发送邮件      |
+| 配额警告     | 开启   | 存储空间即将用尽时发送警告邮件    |
+| AI处理完成   | 关闭   | AI摘要或标签处理完成时发送邮件    |
+| 系统通知     | 开启   | 重要的系统更新和安全提醒          |
 
 ### 8. 群发系统公告
 
@@ -699,12 +703,14 @@ PUBLIC_URL = "https://your-domain.com"
 #### 问题：邮件发送失败
 
 **检查清单**:
+
 - ✅ Resend API Key 是否正确
 - ✅ 发件人域名是否已验证
 - ✅ `PUBLIC_URL` 是否已配置
 - ✅ 发件人地址是否使用验证过的域名
 
 **查看日志**:
+
 ```bash
 # Cloudflare Workers 日志
 wrangler tail
@@ -719,6 +725,7 @@ wrangler tail
 **原因**: `PUBLIC_URL` 配置错误或未配置
 
 **解决方案**:
+
 1. 检查 GitHub Secrets 中的 `PUBLIC_URL`
 2. 确保使用正确的生产环境域名
 3. 重新部署后端
@@ -726,6 +733,7 @@ wrangler tail
 #### 问题：验证邮件进入垃圾箱
 
 **解决方案**:
+
 1. 在 Resend 中验证域名
 2. 配置 SPF、DKIM 记录
 3. 联系邮件服务商提升信誉度
@@ -733,6 +741,7 @@ wrangler tail
 ### 10. 邮件服务限制
 
 Resend 免费版限制：
+
 - 每月 3,000 封邮件
 - 每天 100 封邮件
 - 1 个域名
@@ -1275,13 +1284,13 @@ pnpm deploy:api
 
 ### AI 功能说明
 
-| 功能           | 模型                    | 说明                       |
-| -------------- | ----------------------- | -------------------------- |
-| 文件摘要       | Llama 3.1 8B            | 自动为文本文件生成摘要     |
-| 图片描述       | LLaVA 1.5 7B            | 自动识别图片内容并描述     |
-| 图片标签       | ResNet-50               | 自动生成图片分类标签       |
-| 智能重命名     | Llama 3.1 8B            | 根据内容推荐文件名         |
-| 语义搜索       | BGE-M3 (1024 维)        | 基于语义相似度搜索文件     |
+| 功能       | 模型             | 说明                   |
+| ---------- | ---------------- | ---------------------- |
+| 文件摘要   | Llama 3.1 8B     | 自动为文本文件生成摘要 |
+| 图片描述   | LLaVA 1.5 7B     | 自动识别图片内容并描述 |
+| 图片标签   | ResNet-50        | 自动生成图片分类标签   |
+| 智能重命名 | Llama 3.1 8B     | 根据内容推荐文件名     |
+| 语义搜索   | BGE-M3 (1024 维) | 基于语义相似度搜索文件 |
 
 ### 成本说明
 
