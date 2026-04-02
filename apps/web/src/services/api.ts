@@ -197,6 +197,19 @@ export interface ShareInfo {
   hasPassword: boolean;
 }
 
+export interface ShareFolderInfo {
+  folder: {
+    id: string;
+    name: string;
+    size: number;
+    mimeType: string | null;
+    isFolder: true;
+  };
+  children: ShareChildFile[];
+  /** 从分享根目录到当前文件夹的路径 */
+  path: Array<{ id: string; name: string; isFolder: true }>;
+}
+
 export interface UploadLinkInfo {
   token: string;
   folderName: string;
@@ -225,6 +238,10 @@ export const shareApi = {
 
   // ── 公开分享信息（含文件夹子文件列表）─────────────────────────────────
   get: (id: string, password?: string) => api.get<ApiResponse<ShareInfo>>(`/api/share/${id}`, { params: { password } }),
+
+  // ── 获取子文件夹内容 ───────────────────────────────────────────────────
+  getFolder: (shareId: string, folderId: string, password?: string) =>
+    api.get<ApiResponse<ShareFolderInfo>>(`/api/share/${shareId}/folder/${folderId}`, { params: { password } }),
 
   // ── 单文件下载（文件分享直接下载 / 文件夹内单文件下载）──────────────
   download: (id: string, password?: string) =>
