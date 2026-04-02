@@ -70,27 +70,26 @@ export default function Starred() {
           {files.map((file) => (
             <div
               key={file.id}
-              className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/40 transition-colors cursor-pointer group"
+              className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/40 transition-colors cursor-pointer group overflow-hidden"
               onClick={() => handleFileClick(file)}
             >
               <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
 
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 overflow-hidden">
                 <p className="font-medium truncate text-sm">{file.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap min-w-0">
-                  {!file.isFolder && <span className="flex-shrink-0">{formatBytes(file.size)}</span>}
-                  {!file.isFolder && <span className="flex-shrink-0">·</span>}
-                  <span className="flex-shrink-0">{formatDate(file.updatedAt)}</span>
+                <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                  <p className="flex items-center gap-1.5 overflow-hidden">
+                    {!file.isFolder && <span className="flex-shrink-0">{formatBytes(file.size)}</span>}
+                    {!file.isFolder && <span className="flex-shrink-0">·</span>}
+                    <span className="flex-shrink-0 truncate">{formatDate(file.updatedAt)}</span>
+                  </p>
                   {file.path && (
-                    <>
-                      <span className="flex-shrink-0">·</span>
-                      <span className="flex items-center gap-1 min-w-0 overflow-hidden">
-                        <FolderOpen className="h-3 w-3 flex-shrink-0" />
-                        <span className="truncate">{file.path}</span>
-                      </span>
-                    </>
+                    <p className="flex items-center gap-1 overflow-hidden">
+                      <FolderOpen className="h-3 w-3 flex-shrink-0" />
+                      <span className="truncate">{file.path}</span>
+                    </p>
                   )}
-                </p>
+                </div>
               </div>
 
               <div
