@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -603,8 +603,8 @@ app.post('/permanent-delete', async (c) => {
                 try {
                   await s3Delete(bucketConfig, child.r2Key);
                   await updateBucketStats(db, bucketConfig.id, -child.size, -1);
-                } catch (e) {
-                  console.error(`S3 delete failed for ${child.r2Key}:`, e);
+                } catch (error) {
+                  logger.error('BATCH', 'S3删除失败', { r2Key: child.r2Key }, error);
                 }
               } else if (c.env.FILES) {
                 await c.env.FILES.delete(child.r2Key);
@@ -622,8 +622,8 @@ app.post('/permanent-delete', async (c) => {
             try {
               await s3Delete(bucketConfig, file.r2Key);
               await updateBucketStats(db, bucketConfig.id, -file.size, -1);
-            } catch (e) {
-              console.error(`S3 delete failed for ${file.r2Key}:`, e);
+            } catch (error) {
+              logger.error('BATCH', 'S3删除失败', { r2Key: file.r2Key }, error);
             }
           } else if (c.env.FILES) {
             await c.env.FILES.delete(file.r2Key);

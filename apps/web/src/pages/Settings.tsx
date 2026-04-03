@@ -228,7 +228,9 @@ function EmailChangeForm() {
             {code.map((digit, index) => (
               <Input
                 key={index}
-                ref={(el) => { inputRefs.current[index] = el; }}
+                ref={(el) => {
+                  inputRefs.current[index] = el;
+                }}
                 type="text"
                 inputMode="numeric"
                 maxLength={1}
@@ -277,11 +279,7 @@ function EmailChangeForm() {
           </Button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleReset}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
+        <button type="button" onClick={handleReset} className="text-xs text-muted-foreground hover:text-foreground">
           返回修改
         </button>
       </div>

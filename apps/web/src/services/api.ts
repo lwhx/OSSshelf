@@ -80,7 +80,10 @@ export const authApi = {
   deleteDevice: (deviceId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
   verifyCode: (params: { email: string; code: string; type: 'verify_email' | 'reset_password' | 'change_email' }) =>
-    api.post<ApiResponse<{ message: string; verified?: boolean; resetTokenId?: string }>>('/api/auth/verify-code', params),
+    api.post<ApiResponse<{ message: string; verified?: boolean; resetTokenId?: string }>>(
+      '/api/auth/verify-code',
+      params
+    ),
   resendVerification: (params: { email: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/resend-verification', params),
   forgotPassword: (params: { email: string }) =>

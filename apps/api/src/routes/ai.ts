@@ -17,6 +17,18 @@ import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+
+interface IndexTask {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  total: number;
+  processed: number;
+  failed: number;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  error?: string;
+}
 import {
   indexFileVector,
   deleteFileVector,
@@ -97,7 +109,7 @@ app.post('/index/all', async (c) => {
   const taskKey = `ai:index:task:${userId}`;
   const existingTask = await c.env.KV.get(taskKey, 'json');
 
-  if (existingTask && (existingTask as Record<string, unknown>).status === 'running') {
+  if (existingTask && (existingTask as IndexTask).status === 'running') {
     return c.json({
       success: false,
       error: {
@@ -108,7 +120,7 @@ app.post('/index/all', async (c) => {
   }
 
   // total 由 runBatchIndexTask 内部快照确定，这里先用 0 占位
-  const task = {
+  const task: IndexTask = {
     id: crypto.randomUUID(),
     status: 'running',
     total: 0,
@@ -163,7 +175,7 @@ app.delete('/index/task', async (c) => {
     });
   }
 
-  const task = existingTask as Record<string, unknown>;
+  const task = existingTask as IndexTask;
   task.status = 'cancelled';
   task.completedAt = new Date().toISOString();
   task.updatedAt = new Date().toISOString();
@@ -384,7 +396,7 @@ app.get('/file/:fileId', async (c) => {
   });
 });
 
-async function runBatchIndexTask(env: Env, userId: string, task: Record<string, unknown>): Promise<void> {
+async function runBatchIndexTask(env: Env, userId: string, task: IndexTask): Promise<void> {
   const db = getDb(env.DB);
   const taskKey = `ai:index:task:${userId}`;
   const concurrency = 5;
@@ -404,9 +416,9 @@ async function runBatchIndexTask(env: Env, userId: string, task: Record<string, 
       )
       .all();
 
-    (task as any).total = allUnindexed.length;
-    (task as any).processed = 0;
-    (task as any).failed = 0;
+    task.total = allUnindexed.length;
+    task.processed = 0;
+    task.failed = 0;
     await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
 
     const indexFile = async (fileId: string): Promise<{ success: boolean; error?: string }> => {
@@ -429,26 +441,26 @@ async function runBatchIndexTask(env: Env, userId: string, task: Record<string, 
       for (const result of results) {
         if (result.status === 'fulfilled') {
           if (result.value.success) {
-            (task as any).processed = ((task as any).processed || 0) + 1;
+            task.processed = (task.processed || 0) + 1;
           } else {
-            (task as any).failed = ((task as any).failed || 0) + 1;
+            task.failed = (task.failed || 0) + 1;
           }
         } else {
-          (task as any).failed = ((task as any).failed || 0) + 1;
+          task.failed = (task.failed || 0) + 1;
         }
       }
 
-      (task as any).updatedAt = new Date().toISOString();
+      task.updatedAt = new Date().toISOString();
       await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
     }
 
-    (task as any).status = 'completed';
-    (task as any).completedAt = new Date().toISOString();
-    (task as any).updatedAt = new Date().toISOString();
+    task.status = 'completed';
+    task.completedAt = new Date().toISOString();
+    task.updatedAt = new Date().toISOString();
   } catch (error) {
-    (task as any).status = 'failed';
-    (task as any).error = error instanceof Error ? error.message : String(error);
-    (task as any).updatedAt = new Date().toISOString();
+    task.status = 'failed';
+    task.error = error instanceof Error ? error.message : String(error);
+    task.updatedAt = new Date().toISOString();
   }
 
   await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });

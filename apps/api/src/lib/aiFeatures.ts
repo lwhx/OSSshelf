@@ -12,7 +12,7 @@ import type { Env } from '../types/env';
 import { getDb, files } from '../db';
 import { eq } from 'drizzle-orm';
 import { getFileContent } from './utils';
-import { isEditableFile } from '@osshelf/shared';
+import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 
 const SUMMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct' as const;
@@ -103,7 +103,7 @@ export async function generateFileSummary(env: Env, fileId: string, content?: st
 
     return { summary, cached: false };
   } catch (error) {
-    console.error('Failed to generate summary:', error);
+    logAiError('生成摘要', fileId, error);
     throw error;
   }
 }
@@ -161,14 +161,13 @@ export async function generateImageTags(env: Env, fileId: string, imageBuffer?: 
       .set({
         aiTags: JSON.stringify(tags),
         aiTagsAt: now,
-        // caption 存入 aiSummary，供语义搜索使用
         ...(caption ? { aiSummary: caption, aiSummaryAt: now } : {}),
       })
       .where(eq(files.id, fileId));
 
     return { tags, caption };
   } catch (error) {
-    console.error('Failed to generate image tags:', error);
+    logAiError('生成图片标签', fileId, error);
     throw error;
   }
 }
@@ -187,7 +186,6 @@ export async function suggestFileName(env: Env, fileId: string, content?: string
 
   const ext = file.name.includes('.') ? `.${file.name.split('.').pop()}` : '';
 
-  // 文本文件：用实际内容；非文本文件：用文件名+mimeType 让 AI 猜
   let contextForAI: string;
   let isContentBased = false;
 
@@ -203,7 +201,6 @@ export async function suggestFileName(env: Env, fileId: string, content?: string
       contextForAI = `文件类型：${file.mimeType || '未知'}`;
     }
   } else {
-    // 图片/PDF/视频等：用 mimeType + 已有 aiSummary/aiTags 辅助
     const hints = [
       `文件类型：${file.mimeType || '未知'}`,
       file.aiSummary ? `AI描述：${file.aiSummary}` : '',
@@ -241,7 +238,6 @@ export async function suggestFileName(env: Env, fileId: string, content?: string
       .map((s: string) => s.trim())
       .filter((s: string) => {
         if (!s || s.length === 0) return false;
-        // 过滤掉 AI 可能输出的解释性文字（不包含文件扩展名或太长）
         if (isContentBased && ext && !s.includes('.')) return false;
         return s.length <= 50;
       })
@@ -249,7 +245,7 @@ export async function suggestFileName(env: Env, fileId: string, content?: string
 
     return { suggestions };
   } catch (error) {
-    console.error('Failed to suggest file name:', error);
+    logAiError('智能重命名', fileId, error);
     throw error;
   }
 }
@@ -265,7 +261,8 @@ async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): P
 
     const decoder = new TextDecoder('utf-8');
     return decoder.decode(content).slice(0, 4096);
-  } catch {
+  } catch (error) {
+    logger.error('AI', '提取文件文本失败', { fileId: file.id }, error);
     return '';
   }
 }
@@ -277,7 +274,8 @@ async function fetchFileContentAsBuffer(env: Env, file: typeof files.$inferSelec
 
   try {
     return await getFileContent(env, file.bucketId, file.r2Key);
-  } catch {
+  } catch (error) {
+    logger.error('AI', '获取文件内容失败', { fileId: file.id, r2Key: file.r2Key }, error);
     return null;
   }
 }
@@ -319,23 +317,21 @@ export async function autoProcessFile(env: Env, fileId: string): Promise<void> {
 
   if (isImageFile(file.mimeType)) {
     tasks.push(
-      generateImageTags(env, fileId).then(
-        () => {},
-        (e) => {
-          console.error(`Failed to generate image tags for ${fileId}:`, e);
-        }
-      )
+      generateImageTags(env, fileId)
+        .then(() => {})
+        .catch((error) => {
+          logAiError('自动图片标签', fileId, error);
+        })
     );
   }
 
   if (canGenerateSummary(file.mimeType, file.name)) {
     tasks.push(
-      generateFileSummary(env, fileId).then(
-        () => {},
-        (e) => {
-          console.error(`Failed to generate summary for ${fileId}:`, e);
-        }
-      )
+      generateFileSummary(env, fileId)
+        .then(() => {})
+        .catch((error) => {
+          logAiError('自动摘要', fileId, error);
+        })
     );
   }
 
@@ -349,8 +345,8 @@ export async function autoProcessFile(env: Env, fileId: string): Promise<void> {
       if (text && text.trim().length > 0) {
         await indexFileVector(env, fileId, text);
       }
-    } catch (e) {
-      console.error(`Failed to auto index vector for ${fileId}:`, e);
+    } catch (error) {
+      logAiError('自动向量索引', fileId, error);
     }
   }
 }

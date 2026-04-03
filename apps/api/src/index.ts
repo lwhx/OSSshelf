@@ -13,6 +13,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import { secureHeaders } from 'hono/secure-headers';
+import { logger as appLogger } from '@osshelf/shared';
 import authRoutes from './routes/auth';
 import filesRoutes from './routes/files';
 import shareRoutes from './routes/share';
@@ -173,14 +174,14 @@ app.notFound((c) => {
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    console.log(`Cron trigger fired at ${new Date().toISOString()}`);
+    appLogger.info('CRON', '定时任务触发', { time: new Date().toISOString() });
     ctx.waitUntil(
       runAllCleanupTasks(env)
         .then((result) => {
-          console.log('Cron job completed:', JSON.stringify(result));
+          appLogger.info('CRON', '定时任务完成', { result });
         })
         .catch((error) => {
-          console.error('Cron job failed:', error);
+          appLogger.error('CRON', '定时任务失败', {}, error);
         })
     );
   },

@@ -26,7 +26,7 @@ import { checkFilePermission } from './permissions';
 import { inheritParentPermissions } from './permissions';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification, sendNotification } from '../lib/notificationUtils';
@@ -1087,7 +1087,7 @@ app.post('/create', async (c) => {
           await autoProcessFile(c.env, fileId);
         }
       } catch (error) {
-        console.error('Failed to auto process file:', error);
+        logger.error('FILES', '自动处理文件失败', { fileId }, error);
       }
     })()
   );
@@ -1602,7 +1602,11 @@ async function deleteFileFromStorage(
       for (const vKey of versionKeysToDelete) {
         const vRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey)).get();
         if (vRef) {
-          if (isChunkedFileId(vRef.tgFileId)) await tgDeleteChunked(db, vRef.tgFileId).catch(() => {});
+          if (isChunkedFileId(vRef.tgFileId)) {
+            await tgDeleteChunked(db, vRef.tgFileId).catch((error) => {
+              logger.error('FILES', 'Telegram分片删除失败', { tgFileId: vRef.tgFileId }, error);
+            });
+          }
           await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey));
         }
       }
@@ -1618,12 +1622,12 @@ async function deleteFileFromStorage(
     // 删除主文件
     try {
       await s3Delete(bucketConfig, file.r2Key);
-    } catch (e) {
-      console.error(`S3 delete failed for ${file.r2Key}:`, e);
+    } catch (error) {
+      logger.error('FILES', 'S3删除失败', { r2Key: file.r2Key }, error);
     }
     // 删除所有版本存储对象
     for (const vKey of versionKeysToDelete) {
-      await s3Delete(bucketConfig, vKey).catch((e) => console.error(`S3 version delete failed ${vKey}:`, e));
+      await s3Delete(bucketConfig, vKey).catch((error) => logger.error('FILES', 'S3版本删除失败', { vKey }, error));
     }
     await updateBucketStats(db, bucketConfig.id, -file.size, -1);
   } else if (env.FILES) {
@@ -1631,7 +1635,9 @@ async function deleteFileFromStorage(
     await env.FILES.delete(file.r2Key);
     // 删除所有版本存储对象
     for (const vKey of versionKeysToDelete) {
-      await env.FILES.delete(vKey).catch(() => {});
+      await env.FILES.delete(vKey).catch((error) => {
+        logger.error('FILES', 'R2版本删除失败', { vKey }, error);
+      });
     }
   }
 
