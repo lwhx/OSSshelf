@@ -515,7 +515,7 @@ app.post('/part-done', async (c) => {
   }
 
   // 存储 {partNumber, etag} 对象以支持断点续传时直接使用，无需再次调用 S3 ListParts
-  const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
+  const uploadedParts: Array<{ partNumber: number; etag: string }> = typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
   const alreadyRecorded = uploadedParts.some((p) => p.partNumber === partNumber);
   if (!alreadyRecorded) {
     uploadedParts.push({ partNumber, etag });
@@ -579,7 +579,7 @@ app.post('/part-proxy', async (c) => {
   const chunkBuffer = await chunk.arrayBuffer();
   const etag = await s3UploadPart(bucketConfig, task.r2Key, task.uploadId, partNumber, chunkBuffer);
 
-  const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
+  const uploadedParts: Array<{ partNumber: number; etag: string }> = typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
   const alreadyRecorded = uploadedParts.some((p) => p.partNumber === partNumber);
   if (!alreadyRecorded) {
     uploadedParts.push({ partNumber, etag });
@@ -742,7 +742,7 @@ app.post('/telegram-part', async (c) => {
       set: { tgFileId, chunkSize: chunkBuffer.byteLength, createdAt: now },
     });
 
-  const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
+  const uploadedParts: Array<{ partNumber: number; etag: string }> = typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
   if (!uploadedParts.some((p) => p.partNumber === partNumber)) {
     uploadedParts.push({ partNumber, etag: tgFileId });
     const progress = task.totalParts > 0 ? Math.round((uploadedParts.length / task.totalParts) * 100) : 0;
@@ -1020,7 +1020,7 @@ app.post('/complete', async (c) => {
     if (isTelegramSmall) {
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
         try {
-          return JSON.parse(task.uploadedParts || '[]');
+          return typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
         } catch {
           return [];
         }
@@ -1120,7 +1120,7 @@ app.post('/complete', async (c) => {
       // ── 校验所有分片是否都已上传 ──────────────────────────────────────
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
         try {
-          return JSON.parse(task.uploadedParts || '[]');
+          return typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
         } catch {
           return [];
         }
@@ -1423,7 +1423,7 @@ app.get('/:taskId', async (c) => {
   }
 
   if (task.status === 'completed') {
-    return c.json({ success: true, data: { ...task, uploadedParts: JSON.parse(task.uploadedParts || '[]') } });
+    return c.json({ success: true, data: { ...task, uploadedParts: typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : task.uploadedParts } });
   }
 
   if (task.status === 'failed') {
@@ -1431,7 +1431,7 @@ app.get('/:taskId', async (c) => {
       success: true,
       data: {
         ...task,
-        uploadedParts: JSON.parse(task.uploadedParts || '[]'),
+        uploadedParts: typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : task.uploadedParts,
         errorMessage: task.errorMessage,
       },
     });
@@ -1450,7 +1450,7 @@ app.get('/:taskId', async (c) => {
       success: true,
       data: {
         ...task,
-        uploadedParts: JSON.parse(task.uploadedParts || '[]').map((p: { partNumber: number; etag: string } | number) =>
+        uploadedParts: (typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : task.uploadedParts).map((p: { partNumber: number; etag: string } | number) =>
           typeof p === 'number' ? p : p.partNumber
         ),
         progress: task.progress ?? 0,
@@ -1465,7 +1465,7 @@ app.get('/:taskId', async (c) => {
 
   let storedParts: Array<{ partNumber: number; etag: string }> = [];
   try {
-    storedParts = JSON.parse(task.uploadedParts || '[]');
+    storedParts = typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
     if (storedParts.length > 0 && typeof storedParts[0] === 'number') {
       storedParts = (storedParts as unknown as number[]).map((n) => ({ partNumber: n, etag: '' }));
     }
