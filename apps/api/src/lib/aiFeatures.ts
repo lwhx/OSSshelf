@@ -19,6 +19,9 @@ const SUMMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct' as const;
 const IMAGE_CAPTION_MODEL = '@cf/llava-hf/llava-1.5-7b-hf' as const;
 const IMAGE_TAG_MODEL = '@cf/microsoft/resnet-50' as const;
 
+const SUMMARY_CONTENT_LIMIT = 8192;
+const RENAME_CONTENT_LIMIT = 4096;
+
 export interface SummaryResult {
   summary: string;
   cached: boolean;
@@ -77,7 +80,7 @@ export async function generateFileSummary(env: Env, fileId: string, content?: st
     throw new Error('文件内容太短（少于50字符），无法生成摘要');
   }
 
-  const truncatedContent = textContent.slice(0, 4096);
+  const truncatedContent = textContent.slice(0, SUMMARY_CONTENT_LIMIT);
 
   try {
     const response = await (env.AI as any).run(SUMMARY_MODEL, {
@@ -195,7 +198,7 @@ export async function suggestFileName(env: Env, fileId: string, content?: string
       textContent = await extractTextFromFile(env, file);
     }
     if (textContent && textContent.length >= 30) {
-      contextForAI = `文件内容（前2000字）：\n${textContent.slice(0, 2000)}`;
+      contextForAI = `文件内容（前${RENAME_CONTENT_LIMIT}字）：\n${textContent.slice(0, RENAME_CONTENT_LIMIT)}`;
       isContentBased = true;
     } else {
       contextForAI = `文件类型：${file.mimeType || '未知'}`;
@@ -250,6 +253,60 @@ export async function suggestFileName(env: Env, fileId: string, content?: string
   }
 }
 
+export async function suggestFileNameFromContent(
+  env: Env,
+  content: string,
+  mimeType: string | null,
+  extension: string
+): Promise<RenameSuggestion> {
+  if (!env.AI) {
+    throw new Error('AI service not configured');
+  }
+
+  if (!content || content.trim().length < 30) {
+    throw new Error('文件内容太短（少于30字符），无法生成命名建议');
+  }
+
+  const ext = extension || '';
+
+  try {
+    const response = await (env.AI as any).run(SUMMARY_MODEL, {
+      messages: [
+        {
+          role: 'system',
+          content: `你是文件命名助手。根据提供的文件内容，建议3个简洁、有意义的中文文件名。
+规则：
+1. 每个文件名不超过20个字
+2. 保留文件扩展名 ${ext || '（无扩展名）'}
+3. 每行一个文件名，不加编号、不加解释
+4. 文件名要能反映文件主要内容
+5. 只输出文件名，不输出其他任何内容`,
+        },
+        {
+          role: 'user',
+          content: `文件类型：${mimeType || '未知'}\n文件内容（前${RENAME_CONTENT_LIMIT}字）：\n${content.slice(0, RENAME_CONTENT_LIMIT)}`,
+        },
+      ],
+      max_tokens: 150,
+    });
+
+    const responseText = (response as { response?: string }).response || '';
+    const suggestions = responseText
+      .split('\n')
+      .map((s: string) => s.trim())
+      .filter((s: string) => {
+        if (!s || s.length === 0) return false;
+        return s.length <= 50;
+      })
+      .slice(0, 3);
+
+    return { suggestions };
+  } catch (error) {
+    logAiError('智能命名', 'new-file', error);
+    throw error;
+  }
+}
+
 async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): Promise<string> {
   if (!canGenerateSummary(file.mimeType, file.name)) {
     return '';
@@ -260,7 +317,7 @@ async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): P
     if (!content) return '';
 
     const decoder = new TextDecoder('utf-8');
-    return decoder.decode(content).slice(0, 4096);
+    return decoder.decode(content).slice(0, SUMMARY_CONTENT_LIMIT);
   } catch (error) {
     logger.error('AI', '提取文件文本失败', { fileId: file.id }, error);
     return '';

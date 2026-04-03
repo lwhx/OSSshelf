@@ -1154,6 +1154,9 @@ export const aiApi = {
 
   suggestRename: (fileId: string) => api.post<ApiResponse<AIRenameSuggestion>>(`/api/ai/rename-suggest/${fileId}`),
 
+  suggestFileName: (params: { content: string; mimeType?: string | null; extension?: string }) =>
+    api.post<ApiResponse<AIRenameSuggestion>>('/api/ai/name-suggest', params),
+
   indexFile: (fileId: string) => api.post<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
 
   indexBatch: (fileIds: string[]) =>

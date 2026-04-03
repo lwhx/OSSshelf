@@ -36,7 +36,7 @@ import {
   isAIConfigured,
   searchAndFetchFiles,
 } from '../lib/vectorIndex';
-import { generateFileSummary, generateImageTags, suggestFileName } from '../lib/aiFeatures';
+import { generateFileSummary, generateImageTags, suggestFileName, suggestFileNameFromContent } from '../lib/aiFeatures';
 import { createNotification, sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -362,6 +362,34 @@ app.post('/rename-suggest/:fileId', async (c) => {
     return c.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : '生成重命名建议失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
+});
+
+const nameSuggestSchema = z.object({
+  content: z.string().min(30, '文件内容至少需要30个字符'),
+  mimeType: z.string().nullable().optional(),
+  extension: z.string().optional(),
+});
+
+app.post('/name-suggest', async (c) => {
+  const body = await c.req.json();
+  const result = nameSuggestSchema.safeParse(body);
+
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { content, mimeType, extension } = result.data;
+
+  try {
+    const suggestions = await suggestFileNameFromContent(c.env, content, mimeType || null, extension || '');
+    return c.json({ success: true, data: suggestions });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成命名建议失败';
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
 });
